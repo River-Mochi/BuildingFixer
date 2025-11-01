@@ -1,5 +1,5 @@
 // File: Mod.cs
-// Purpose: Entrypoint for [ABB] Abandoned Building Boss; registers settings + locale.
+// Purpose: Entrypoint for Abandoned Building Boss [ABB]; registers settings + locale.
 
 namespace AbandonedBuildingBoss
 {
@@ -11,7 +11,7 @@ namespace AbandonedBuildingBoss
 
     public sealed class Mod : IMod
     {
-        public const string ModName = "[ABB] Abandoned Building Boss";
+        public const string ModName = "Abandoned Building Boss [ABB]";
         public const string ModVersion = "0.3.0";
 
         // no ".Mod" suffix per your rule
