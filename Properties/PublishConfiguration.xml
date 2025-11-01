@@ -11,8 +11,10 @@
 Automatically removes all abandoned buildings and their connected sub-entities such as lanes, areas, and networks.
 This keeps city saves stable, prevents simulation clutter, and reduces performance loss caused by leftover abandoned structures.
 
+## Works for new 1.3.6f* game patch
+
 ## Features
-* Safe, lightweight, and runs automatically.
+* Just install, it runs automatically (keep checbox on) 
 * No Harmony or Reflection for most compatibility - less likely to break with game updates.
 * Toggle on/off from the mod's Settings → Actions tab.
 * Safe to remove at any time.
@@ -24,7 +26,7 @@ This keeps city saves stable, prevents simulation clutter, and reduces performan
 
 ## Credits to:
 * RiverMochi - mod author
-* Inspired by Wayz for the original "Abandoned Building Remover" mod (defunct)
+* Thanks Wayz for the original "Abandoned Building Remover" mod (defunct)
 
 	</LongDescription>
 	<!--Thumbnail-->
@@ -38,7 +40,7 @@ This keeps city saves stable, prevents simulation clutter, and reduces performan
 	<!--Version of the mod-->
 	<ModVersion Value="1.0.0" />
 	<!--Recommended version of the base game to use the mod-->
-	<GameVersion Value="1.3.*" />
+	<GameVersion Value="1.3.6*" />
 	<!--Dependency for the mod, can be set multiple times-->
 	<Dependency Id="" />
 	<!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->

@@ -1,8 +1,9 @@
-// Mod.cs
+// File: Mod.cs
+// Purpose: Entrypoint for [ABB] Abandoned Building Boss; registers settings + locale.
+
 namespace AbandonedBuildingBoss
 {
     using Colossal.IO.AssetDatabase;
-    using Colossal.Localization;
     using Colossal.Logging;
     using Game;
     using Game.Modding;
@@ -10,50 +11,51 @@ namespace AbandonedBuildingBoss
 
     public sealed class Mod : IMod
     {
-        public const string Name = "Abandoned Building Boss";
-        public const string Version = "0.1.0";
+        public const string ModName = "[ABB] Abandoned Building Boss";
+        public const string ModVersion = "0.3.0";
 
+        // no ".Mod" suffix per your rule
         public static readonly ILog Log =
-            LogManager.GetLogger("AbandonedBuildingBoss").SetShowsErrorsInUI(false);
+            LogManager.GetLogger("AbandonedBuildingBoss").SetShowsErrorsInUI(
+#if DEBUG
+                true
+#else
+                false
+#endif
+            );
 
-        public static Setting m_Settings { get; private set; } = null!;
+        public static Setting? Settings;
 
         public void OnLoad(UpdateSystem updateSystem)
         {
-            Log.Info($"{Name} v{Version} - OnLoad");
+            Log.Info($"{ModName} v{ModVersion} OnLoad");
 
-            // Executable asset path (useful for diagnostics)
-            if (GameManager.instance.modManager.TryGetExecutableAsset(this, out ExecutableAsset execAsset))
-            {
-                // Settings instance and persisted values (defaults provided via template pattern)
-                m_Settings = new Setting(this);
-            }
+            // settings
+            var setting = new Setting(this);
+            Settings = setting;
 
-            AssetDatabase.global.LoadSettings(nameof(AbandonedBuildingBoss), m_Settings, new Setting(this));
+            // options UI
+            setting.RegisterInOptionsUI();
 
-            // Locale registration so Options UI shows labels (support both "en-US" and plain "en")
-            LocalizationManager? lm = GameManager.instance?.localizationManager;
+            // load (or create) stored settings
+            AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
+
+            // locale
+            var lm = GameManager.instance?.localizationManager;
             if (lm != null)
             {
-                Log.Info($"[Locale] ACTIVE at LOAD: {lm.activeLocaleId}");
-                lm.AddSource("en-US", new LocaleEN(m_Settings));
-                lm.AddSource("en", new LocaleEN(m_Settings));
+                lm.AddSource("en-US", new LocaleEN(setting));
             }
 
-            // Expose Options UI
-            m_Settings.RegisterInOptionsUI();
-
-            // Simulation system scheduling (work gated by the Enabled toggle)
-            updateSystem.UpdateAfter<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
+            // systems are discovered automatically
         }
 
         public void OnDispose()
         {
-            Log.Info(nameof(OnDispose));
-            if (m_Settings != null)
+            if (Settings != null)
             {
-                m_Settings.UnregisterInOptionsUI();
-                m_Settings = null!;
+                Settings.UnregisterInOptionsUI();
+                Settings = null;
             }
         }
     }

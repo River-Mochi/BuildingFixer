@@ -1,4 +1,6 @@
-// LocaleEN.cs
+// File: LocaleEN.cs
+// Purpose: English (en-US) strings for [ABB].
+
 namespace AbandonedBuildingBoss
 {
     using System.Collections.Generic;
@@ -14,40 +16,56 @@ namespace AbandonedBuildingBoss
         }
 
         public IEnumerable<KeyValuePair<string, string>> ReadEntries(
-            IList<IDictionaryEntryError> errors, Dictionary<string, int> indexCounts)
+            IList<IDictionaryEntryError> errors,
+            Dictionary<string, int> indexCounts)
         {
-            return new Dictionary<string, string>
+            var d = new Dictionary<string, string>
             {
-                // Tabs
-                { m_Setting.GetOptionTabLocaleID(Setting.ActionsTab), "Actions" },
-                { m_Setting.GetOptionTabLocaleID(Setting.AboutTab),   "About"   },
-
-                // Groups
-                { m_Setting.GetOptionGroupLocaleID(Setting.ActionsGroup), "Main"  },
-                { m_Setting.GetOptionGroupLocaleID(Setting.AboutGroup),   "Info"  },
-                { m_Setting.GetOptionGroupLocaleID(Setting.LinksGroup),   "Links" },
-
-                // Actions
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.Enabled)), "Enabled" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.Enabled)),  "Turn the mod on or off." },
-
-                // About
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.NameDisplay)),    "Mod" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.NameDisplay)),     "Mod display name." },
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.VersionDisplay)), "Version" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VersionDisplay)),  "Installed version." },
-
-                // Links
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.OpenParadoxMods)), "Paradox Mods" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.OpenParadoxMods)),  "Open the Paradox Mods page." },
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.OpenDiscord)),     "Discord" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.OpenDiscord)),      "Open the Discord invite." },
-
-                // Settings page header
+                // settings title
                 { m_Setting.GetSettingsLocaleID(), "Abandoned Building Boss" },
+
+                // tabs
+                { m_Setting.GetOptionTabLocaleID(Setting.kActionsTab), "Actions" },
+                { m_Setting.GetOptionTabLocaleID(Setting.kAboutTab),   "About"   },
+
+                // groups
+                { m_Setting.GetOptionGroupLocaleID(Setting.kActionsGroup),    "" },
+                { m_Setting.GetOptionGroupLocaleID(Setting.kAboutInfoGroup),  "" },
+                { m_Setting.GetOptionGroupLocaleID(Setting.kAboutLinksGroup), "" },
+
+                // actions tab
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AbandonedCount)),  "Abandoned buildings" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.AbandonedCount)),   "Last counted value or status." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.CountAbandoned)),  "Count abandoned" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.CountAbandoned)),   "Scan current city and show how many buildings are abandoned." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.Behavior)),        "Handling behavior" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.Behavior)),         "Choose what [ABB] should do with abandoned buildings." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AlsoClearCondemnedToggle)), "Also clear condemned" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.AlsoClearCondemnedToggle)),  "When clearing abandoned, also remove the Condemned flag if present." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.ClearNow)),        "Clear current abandoned now" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.ClearNow)),         "Immediately process currently abandoned buildings.\nLoad a city first." },
+
+                // about tab
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.ModName)),    "Mod name" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.ModName)),     "Display name of this mod." },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.ModVersion)), "Version" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.ModVersion)),  "Current mod version." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.OpenMods)),    "Paradox Mods" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.OpenMods)),     "Open the mod page." },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.OpenDiscord)), "Discord" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.OpenDiscord)),  "Join the support / feedback channel." },
             };
+
+            return d;
         }
 
-        public void Unload() { }
+        public void Unload()
+        {
+        }
     }
 }

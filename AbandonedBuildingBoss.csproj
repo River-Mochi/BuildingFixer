@@ -7,10 +7,7 @@
     <PublishConfigurationPath>Properties\PublishConfiguration.xml</PublishConfigurationPath>
 
     <!-- Assembly metadata -->
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <AssemblyTitle>Abandoned Building Boss</AssemblyTitle>
     <AssemblyName>AbandonedBuildingBoss</AssemblyName>
-    <Product>Abandoned Building Boss</Product>
     <RootNamespace>AbandonedBuildingBoss</RootNamespace>
 
     <Nullable>enable</Nullable>
