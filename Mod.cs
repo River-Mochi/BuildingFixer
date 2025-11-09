@@ -1,6 +1,5 @@
 // File: Mod.cs
-// Purpose: Entrypoint for Abandoned Building Boss [ABB]; registers settings + locale.
-
+// Purpose: entrypoint for Abandoned Building Boss [ABB]; registers settings, locales, and ensures ECS system is created.
 namespace AbandonedBuildingBoss
 {
     using Colossal.IO.AssetDatabase;
@@ -11,10 +10,11 @@ namespace AbandonedBuildingBoss
 
     public sealed class Mod : IMod
     {
+        // About tab
         public const string ModName = "Abandoned Building Boss [ABB]";
-        public const string ModVersion = "0.3.0";
+        public const string ModVersion = "0.4.0";
 
-        // no ".Mod" suffix per your rule
+
         public static readonly ILog Log =
             LogManager.GetLogger("AbandonedBuildingBoss").SetShowsErrorsInUI(
 #if DEBUG
@@ -30,14 +30,14 @@ namespace AbandonedBuildingBoss
         {
             Log.Info($"{ModName} v{ModVersion} OnLoad");
 
-            // settings
+            // settings object
             var setting = new Setting(this);
             Settings = setting;
 
-            // options UI
+            // show in Options
             setting.RegisterInOptionsUI();
 
-            // load (or create) stored settings
+            // load saved values (or create with defaults)
             AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
 
             // locale
@@ -46,8 +46,7 @@ namespace AbandonedBuildingBoss
             {
                 lm.AddSource("en-US", new LocaleEN(setting));
             }
-
-            // systems are discovered automatically
+            // ECS system is auto-discovered
         }
 
         public void OnDispose()

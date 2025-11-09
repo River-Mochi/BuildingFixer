@@ -7,7 +7,7 @@
 	<ShortDescription Value="Automatically Remove Abandoned Buildings" />
 	<!--Long description of the mod. Single line or multi line. Supports minimal markdown subset-->
 	<!--LongDescription Value="Automatically Remove Abandoned Buildings" /-->
-	<LongDescription># Abandoned Building Boss
+	<LongDescription># Abandoned Building Boss (redux)
 Automatically removes all abandoned buildings and their connected sub-entities such as lanes, areas, and networks.
 This keeps city saves stable, prevents simulation clutter, and reduces performance loss caused by leftover abandoned structures.
 
@@ -25,8 +25,8 @@ This keeps city saves stable, prevents simulation clutter, and reduces performan
 ## If you find this mod useful, don't forget to give it a like.
 
 ## Credits to:
-* RiverMochi - mod author
-* Thanks Wayz for the original "Abandoned Building Remover" mod (defunct)
+* RiverMochi - author/maintainer
+* Thanks Wayz for the original "Abandoned Building Remover" mod
 
 	</LongDescription>
 	<!--Thumbnail-->

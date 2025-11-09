@@ -1,76 +1,63 @@
 // File: Setting.cs
-// Purpose: Options UI for [ABB] Abandoned Building Boss.
-// Layout:
-//   Tab 1 (Actions):
-//     - Handling behavior (dropdown)
-//     - Also clear condemned (toggle)
-//     - Count abandoned (button)
-//     - Abandoned buildings (read-only text; "Idle" | "No city loaded" | "123 buildings")
-//     - Clear current abandoned now (button -> consumed by system)
-//   Tab 2 (About):
-//     - Mod name
-//     - Mod version
-//     - 2 link buttons (Discord + Paradox Mods) on same row
+// Purpose: Options UI for ABB – 2 tabs, 1 dropdown, 1 toggle, 2 buttons on same row, status line.
 
 namespace AbandonedBuildingBoss
 {
     using System;
     using Colossal.IO.AssetDatabase;
-    using Game;
     using Game.Modding;
-    using Game.SceneFlow;
     using Game.Settings;
-    using Game.UI.Widgets;
-    using Unity.Entities;
-    using UnityEngine;
+    using Game.UI.Localization;  // LocalizedString
+    using Game.UI.Widgets;       // UI attributes
+    using UnityEngine;           // Application.OpenURL
 
-    [FileLocation("ModsSettings/AbandonedBuildingBoss/AbandonedBuildingBoss")]
+    // Order is important: tabs first, then groups.
+    [FileLocation("ModsSettings/ABB/AbandonedBuildingBoss")]
     [SettingsUITabOrder(kActionsTab, kAboutTab)]
-    [SettingsUIGroupOrder(kActionsGroup, kAboutInfoGroup, kAboutLinksGroup)]
-    // do NOT show the Actions group name (you asked to hide it)
-    [SettingsUIShowGroupName(kAboutInfoGroup, kAboutLinksGroup)]
+    [SettingsUIGroupOrder(kActionsGroup, kButtonsGroup, kStatusGroup, kAboutInfoGroup, kAboutLinksGroup)]
+    // Show only Status + About info group headers; hide "Actions" and "Buttons" group headers.
+    [SettingsUIShowGroupName(kStatusGroup, kAboutInfoGroup)]
     public sealed class Setting : ModSetting
     {
-        // ---- tabs ----
+        // ---- Tabs ----
         public const string kActionsTab = "Actions";
         public const string kAboutTab = "About";
 
-        // ---- groups ----
+        // ---- Groups ----
         public const string kActionsGroup = "Actions";
-        public const string kAboutInfoGroup = "AboutInfo";
-        public const string kAboutLinksGroup = "AboutLinks";
+        public const string kButtonsGroup = "Buttons";
+        public const string kStatusGroup = "Status";
+        public const string kAboutInfoGroup = "Info";
+        public const string kAboutLinksGroup = "Links";
 
-        // ---- external links ----
-        private const string kUrlMods = "TBD"; // you can fill later
-        private const string kUrlDiscord = "https://discord.gg/HTav7ARPs2";
-
-        // ---- backing fields ----
-        private AbandonedHandlingMode m_Behavior = AbandonedHandlingMode.None;
+        // ---- Backing fields ----
+        private AbandonedHandlingMode m_Behavior = AbandonedHandlingMode.AutoDemolish;
         private bool m_AlsoClearCondemned = true;
-        private bool m_ClearNow;
-        private string m_AbandonedCountText = "Idle";
+        private string m_StatusText = "Idle";
 
-        public Setting(IMod mod) : base(mod)
-        {
-        }
+        // UI → system flags (not saved)
+        private bool m_RequestCount;
+        private bool m_RequestClear;   // "restore" request internally
 
-        // ============================================================
-        // ENUM used by dropdown
-        // ============================================================
-        public enum AbandonedHandlingMode
+        public Setting(IMod mod) : base(mod) { }
+
+        public override void SetDefaults()
         {
-            None = 0,               // do nothing
-            AutoDemolish = 1,       // bulldoze abandoned (+ sub-areas/nets)
-            DisableAbandonment = 2, // clear abandoned (and maybe condemned) + re-enable services
+            // Default = original mod behavior: auto-demolish abandoned
+            m_Behavior = AbandonedHandlingMode.AutoDemolish;
+            m_AlsoClearCondemned = true;
+            m_StatusText = "Idle";
+            m_RequestCount = false;
+            m_RequestClear = false;
         }
 
         // ============================================================
         // ACTIONS TAB
         // ============================================================
 
-        // 1) DROPDOWN
+        // 1) Handling behavior dropdown (CO-style, same as AssetIconLibrary)
         [SettingsUISection(kActionsTab, kActionsGroup)]
-        [SettingsUIDropdown(typeof(Setting), nameof(GetBehaviorItems))]
+        [SettingsUIDropdown(typeof(Setting), nameof(GetBehaviorDropdownItems))]
         public AbandonedHandlingMode Behavior
         {
             get => m_Behavior;
@@ -78,12 +65,13 @@ namespace AbandonedBuildingBoss
             {
                 if (m_Behavior == value)
                     return;
+
                 m_Behavior = value;
                 ApplyAndSave();
             }
         }
 
-        // 2) TOGGLE
+        // 2) Also clear condemned toggle, same group
         [SettingsUISection(kActionsTab, kActionsGroup)]
         public bool AlsoClearCondemned
         {
@@ -92,85 +80,48 @@ namespace AbandonedBuildingBoss
             {
                 if (m_AlsoClearCondemned == value)
                     return;
+
                 m_AlsoClearCondemned = value;
                 ApplyAndSave();
             }
         }
 
-        // 3) COUNT BUTTON (you wanted this BELOW the toggle)
+        // ============================================================
+        // BUTTONS ROW (same group ⇒ same row)
+        // ============================================================
+
+        // Left button: Count abandoned / condemned
+        [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
-        [SettingsUISection(kActionsTab, kActionsGroup)]
+        [SettingsUISection(kActionsTab, kButtonsGroup)]
         public bool CountAbandoned
         {
             set
             {
-                if (!value)
-                    return;
-
-                // 1. need game
-                var gm = GameManager.instance;
-                if (gm == null || !gm.gameMode.IsGameOrEditor())
-                {
-                    m_AbandonedCountText = "No city loaded";
-                    Apply();
-                    return;
-                }
-
-                // 2. need ECS world
-                var world = World.DefaultGameObjectInjectionWorld;
-                if (world == null)
-                {
-                    m_AbandonedCountText = "No city loaded";
-                    Apply();
-                    return;
-                }
-
-                // 3. need our system
-                var sys = world.GetExistingSystemManaged<AbandonedBuildingBossSystem>();
-                if (sys == null)
-                {
-                    m_AbandonedCountText = "System not ready";
-                    Apply();
-                    return;
-                }
-
-                // 4. get count
-                int count = sys.GetCurrentAbandonedCount();
-                m_AbandonedCountText = (count == 1) ? "1 building" : $"{count} buildings";
-                Apply();
+                // Only set a flag; system will consume it on simulation side.
+                m_RequestCount = true;
             }
         }
 
-        // 4) READ-ONLY DISPLAY (stays at bottom of tab, right after button)
-        [SettingsUISection(kActionsTab, kActionsGroup)]
-        public string AbandonedCount => m_AbandonedCountText;
-
-        // 5) CLEAR NOW BUTTON (last on Actions tab)
+        // Right button: Restore buildings (uses the "clear flags" path)
+        [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
-        [SettingsUISection(kActionsTab, kActionsGroup)]
-        public bool ClearNow
+        [SettingsUISection(kActionsTab, kButtonsGroup)]
+        public bool RestoreBuildings
         {
             set
             {
-                if (!value)
-                    return;
-                m_ClearNow = true;   // system will Consume it
-                Apply();
+                // Internally still treated as "clear" request by the system
+                m_RequestClear = true;
             }
         }
 
-        // this is what the system calls each frame
-        public bool TryConsumeClearRequest()
-        {
-            if (!m_ClearNow)
-                return false;
-            m_ClearNow = false;
-            Apply();
-            return true;
-        }
+        // ============================================================
+        // STATUS LINE
+        // ============================================================
 
-        // system also needs this value
-        public bool GetAlsoClearCondemned() => m_AlsoClearCondemned;
+        [SettingsUISection(kActionsTab, kStatusGroup)]
+        public string AbandonedStatus => m_StatusText;
 
         // ============================================================
         // ABOUT TAB
@@ -182,75 +133,108 @@ namespace AbandonedBuildingBoss
         [SettingsUISection(kAboutTab, kAboutInfoGroup)]
         public string ModVersion => Mod.ModVersion;
 
-        // two buttons on same row
-        [SettingsUIButtonGroup("Links")]
-        [SettingsUIButton]
-        [SettingsUISection(kAboutTab, kAboutLinksGroup)]
-        public bool OpenDiscord
-        {
-            set
-            {
-                if (!value)
-                    return;
-                try
-                {
-                    Application.OpenURL(kUrlDiscord);
-                }
-                catch (Exception) { }
-            }
-        }
-
-        [SettingsUIButtonGroup("Links")]
+        // 2 buttons on same row in About
+        [SettingsUIButtonGroup(kAboutLinksGroup)]
         [SettingsUIButton]
         [SettingsUISection(kAboutTab, kAboutLinksGroup)]
         public bool OpenMods
         {
             set
             {
-                if (!value)
-                    return;
                 try
                 {
-                    Application.OpenURL(kUrlMods);
+                    Application.OpenURL("https://mods.paradoxplaza.com/authors/kimosabe1?orderBy=desc&sortBy=best&time=alltime");
                 }
-                catch (Exception) { }
+                catch (Exception)
+                {
+                    // swallow; don't crash options UI
+                }
+            }
+        }
+
+        [SettingsUIButtonGroup(kAboutLinksGroup)]
+        [SettingsUIButton]
+        [SettingsUISection(kAboutTab, kAboutLinksGroup)]
+        public bool OpenDiscord
+        {
+            set
+            {
+                try
+                {
+                    Application.OpenURL("https://discord.gg/HTav7ARPs2");
+                }
+                catch (Exception)
+                {
+                    // swallow; don't crash options UI
+                }
             }
         }
 
         // ============================================================
-        // DROPDOWN ITEMS
+        // Called by the system (simulation thread)
         // ============================================================
-        public DropdownItem<AbandonedHandlingMode>[] GetBehaviorItems()
+
+        // Did user press Count Abandoned?
+        public bool TryConsumeCountRequest()
+        {
+            if (!m_RequestCount)
+                return false;
+
+            m_RequestCount = false;
+            return true;
+        }
+
+        // Did user press Restore Buildings?
+        public bool TryConsumeClearRequest()
+        {
+            if (!m_RequestClear)
+                return false;
+
+            m_RequestClear = false;
+            return true;
+        }
+
+        // System updates the status line
+        public void SetStatus(string text)
+        {
+            m_StatusText = text ?? string.Empty;
+            Apply();    // don't spam disk
+        }
+
+        public bool GetAlsoClearCondemned() => m_AlsoClearCondemned;
+
+        // ============================================================
+        // Dropdown items – CO template style
+        // ============================================================
+
+        public DropdownItem<AbandonedHandlingMode>[] GetBehaviorDropdownItems()
         {
             return new[]
             {
                 new DropdownItem<AbandonedHandlingMode>
                 {
-                    value = AbandonedHandlingMode.None,
-                    displayName = GetOptionLabelLocaleID("Behavior.None"),
+                    value       = AbandonedHandlingMode.None,
+                    displayName = LocalizedString.Id(GetOptionLabelLocaleID(nameof(AbandonedHandlingMode.None))),
                 },
                 new DropdownItem<AbandonedHandlingMode>
                 {
-                    value = AbandonedHandlingMode.AutoDemolish,
-                    displayName = GetOptionLabelLocaleID("Behavior.AutoDemolish"),
+                    value       = AbandonedHandlingMode.AutoDemolish,
+                    displayName = LocalizedString.Id(GetOptionLabelLocaleID(nameof(AbandonedHandlingMode.AutoDemolish))),
                 },
                 new DropdownItem<AbandonedHandlingMode>
                 {
-                    value = AbandonedHandlingMode.DisableAbandonment,
-                    displayName = GetOptionLabelLocaleID("Behavior.DisableAbandonment"),
+                    value       = AbandonedHandlingMode.DisableAbandonment,
+                    displayName = LocalizedString.Id(GetOptionLabelLocaleID(nameof(AbandonedHandlingMode.DisableAbandonment))),
                 },
             };
         }
 
-        // ============================================================
-        // DEFAULTS
-        // ============================================================
-        public override void SetDefaults()
+        // Enum used by both UI and system
+        public enum AbandonedHandlingMode
         {
-            m_Behavior = AbandonedHandlingMode.None;
-            m_AlsoClearCondemned = true;
-            m_ClearNow = false;
-            m_AbandonedCountText = "Idle";
+            None = 0,
+            AutoDemolish = 1,
+            DisableAbandonment = 2,   // clear flags, keep buildings
         }
     }
 }
