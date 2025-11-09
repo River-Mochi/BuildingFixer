@@ -1,5 +1,7 @@
 // File: Mod.cs
-// Purpose: entrypoint for Abandoned Building Boss [ABB]; registers settings, locales, and ensures ECS system is created.
+// Purpose: Entrypoint for Abandoned Building Boss [ABB]; registers settings, locale,
+//          and schedules the ECS system to run in GameSimulation.
+
 namespace AbandonedBuildingBoss
 {
     using Colossal.IO.AssetDatabase;
@@ -14,7 +16,7 @@ namespace AbandonedBuildingBoss
         public const string ModName = "Abandoned Building Boss [ABB]";
         public const string ModVersion = "0.4.0";
 
-
+        // Logger (single id, no ".Mod" suffix)
         public static readonly ILog Log =
             LogManager.GetLogger("AbandonedBuildingBoss").SetShowsErrorsInUI(
 #if DEBUG
@@ -24,33 +26,41 @@ namespace AbandonedBuildingBoss
 #endif
             );
 
+        // Settings instance exposed to the ECS system
         public static Setting? Settings;
 
         public void OnLoad(UpdateSystem updateSystem)
         {
             Log.Info($"{ModName} v{ModVersion} OnLoad");
 
-            // settings object
+            // Create settings object
             var setting = new Setting(this);
             Settings = setting;
 
-            // show in Options
+            // Register Options UI first
             setting.RegisterInOptionsUI();
 
-            // load saved values (or create with defaults)
+            // Load saved values (or create new with defaults on first run)
             AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
 
-            // locale
+            // Register locale
             var lm = GameManager.instance?.localizationManager;
             if (lm != null)
             {
                 lm.AddSource("en-US", new LocaleEN(setting));
             }
-            // ECS system is auto-discovered
+
+            // Explicitly schedule ECS system (like original mod did)
+            // Run after vanilla building simulation.
+            updateSystem.UpdateAfter<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
+
+            Log.Info("[ABB] AbandonedBuildingBossSystem scheduled after GameSimulation.");
         }
 
         public void OnDispose()
         {
+            Log.Info("OnDispose");
+
             if (Settings != null)
             {
                 Settings.UnregisterInOptionsUI();

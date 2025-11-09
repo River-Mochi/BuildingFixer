@@ -1,13 +1,14 @@
 // File: AbandonedBuildingBossSystem.cs
 // Purpose: runtime ECS logic for [ABB] — counts, clears, and auto-handles
 //          abandoned / condemned buildings based on Setting.
+//
 // Notes:
 //   • MUST be 'partial' so it can merge with the generated file in obj/
-//   • needs Colossal.Serialization.Entities for OnGamePreload(Purpose,...)
+//   • Uses Colossal.Serialization.Entities.Purpose in OnGamePreload.
 
 namespace AbandonedBuildingBoss
 {
-    using Colossal.Serialization.Entities; // for Purpose
+    using Colossal.Serialization.Entities; // Purpose
     using Game;
     using Game.Areas;
     using Game.Buildings;
@@ -23,12 +24,13 @@ namespace AbandonedBuildingBoss
 
         private EntityQuery m_AbandonedQuery;
         private EntityQuery m_CondemnedQuery;
+        private EntityQuery m_AnyBuildingQuery;
 
         protected override void OnCreate()
         {
             base.OnCreate();
 
-            // Query: all abandoned, real buildings, not deleted/temp
+            // All abandoned buildings
             m_AbandonedQuery = GetEntityQuery(new EntityQueryDesc
             {
                 All = new[]
@@ -43,7 +45,7 @@ namespace AbandonedBuildingBoss
                 }
             });
 
-            // Query: condemned-only buildings (for the "also clear condemned" option)
+            // All condemned buildings
             m_CondemnedQuery = GetEntityQuery(new EntityQueryDesc
             {
                 All = new[]
@@ -58,8 +60,23 @@ namespace AbandonedBuildingBoss
                 }
             });
 
-            // run only when there are abandoned buildings
-            RequireForUpdate(m_AbandonedQuery);
+            // Any real building (for “No city loaded” check)
+            m_AnyBuildingQuery = GetEntityQuery(new EntityQueryDesc
+            {
+                All = new[]
+                {
+                    ComponentType.ReadOnly<Building>(),
+                },
+                None = new[]
+                {
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>(),
+                }
+            });
+
+            // IMPORTANT: no RequireForUpdate here.
+            // We always want OnUpdate to run (when Enabled) so it can consume button clicks,
+            // even when there are 0 abandoned / 0 condemned buildings.
 
 #if DEBUG
             Mod.Log.Info("[System] AbandonedBuildingBossSystem created.");
@@ -70,7 +87,7 @@ namespace AbandonedBuildingBoss
         {
             base.OnGamePreload(purpose, mode);
 
-            // we only want to actually run inside a loaded map / editor
+            // Only run inside a loaded game / editor map.
             Enabled = mode.IsGameOrEditor();
 
 #if DEBUG
@@ -101,19 +118,16 @@ namespace AbandonedBuildingBoss
                 return;
             }
 
-            // 2) user clicked "Clear current abandoned now"
+            // 2) user clicked "Restore buildings"
             if (setting.TryConsumeClearRequest())
             {
                 bool alsoCondemned = setting.GetAlsoClearCondemned();
-                DoClear(setting, alsoCondemned);
+                DoRestore(setting, alsoCondemned);
                 return;
             }
 
-            // 3) automatic behavior
+            // 3) automatic behavior from dropdown
             var behavior = setting.Behavior;
-            if (behavior == Setting.AbandonedHandlingMode.None)
-                return;
-
             bool alsoClearCondemned = setting.GetAlsoClearCondemned();
 
             switch (behavior)
@@ -125,6 +139,11 @@ namespace AbandonedBuildingBoss
                 case Setting.AbandonedHandlingMode.DisableAbandonment:
                     ClearAbandonedWithoutBulldoze(alsoClearCondemned);
                     break;
+
+                case Setting.AbandonedHandlingMode.None:
+                default:
+                    // do nothing
+                    break;
             }
         }
 
@@ -133,26 +152,22 @@ namespace AbandonedBuildingBoss
         // ------------------------------------------------------------
         private void DoCount(Setting setting)
         {
-            bool hasAbandoned = !m_AbandonedQuery.IsEmptyIgnoreFilter;
-            bool hasCondemned = !m_CondemnedQuery.IsEmptyIgnoreFilter;
-
-            if (!hasAbandoned && !hasCondemned)
+            // “No city loaded” = literally no buildings in the world yet.
+            bool anyBuildings = !m_AnyBuildingQuery.IsEmptyIgnoreFilter;
+            if (!anyBuildings)
             {
-                // usually means "no city yet"
                 setting.SetStatus("No city loaded");
                 return;
             }
 
-            int abandonedCount;
-            using (var arr = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
-            {
-                abandonedCount = arr.Length;
-            }
+            int abandonedCount = m_AbandonedQuery.CalculateEntityCount();
+            int condemnedCount = setting.GetAlsoClearCondemned()
+                                  ? m_CondemnedQuery.CalculateEntityCount()
+                                  : 0;
 
             if (setting.GetAlsoClearCondemned())
             {
-                using var arr2 = m_CondemnedQuery.ToEntityArray(Allocator.Temp);
-                setting.SetStatus($"Abandoned: {abandonedCount}  |  Condemned: {arr2.Length}");
+                setting.SetStatus($"Abandoned: {abandonedCount}  |  Condemned: {condemnedCount}");
             }
             else
             {
@@ -161,31 +176,39 @@ namespace AbandonedBuildingBoss
         }
 
         // ------------------------------------------------------------
-        // Clearing on button
+        // Restore button
         // ------------------------------------------------------------
-        private void DoClear(Setting setting, bool alsoCondemned)
+        private void DoRestore(Setting setting, bool alsoCondemned)
         {
-            // nothing to clear and maybe no city
-            if (m_AbandonedQuery.IsEmptyIgnoreFilter && (!alsoCondemned || m_CondemnedQuery.IsEmptyIgnoreFilter))
+            bool anyBuildings = !m_AnyBuildingQuery.IsEmptyIgnoreFilter;
+            if (!anyBuildings)
             {
-                setting.SetStatus("No city loaded or nothing to clear");
+                setting.SetStatus("No city loaded");
+                return;
+            }
+
+            // If there are no abandoned / condemned, just update status.
+            if (m_AbandonedQuery.IsEmptyIgnoreFilter &&
+                (!alsoCondemned || m_CondemnedQuery.IsEmptyIgnoreFilter))
+            {
+                setting.SetStatus("Nothing to restore");
                 return;
             }
 
             ClearAbandonedWithoutBulldoze(alsoCondemned);
 
-            // update the status to show remaining
+            // Recompute counts afterwards
             DoCount(setting);
         }
 
         // ------------------------------------------------------------
-        // MODE 1: bulldoze
+        // MODE 1: bulldoze (original behavior)
         // ------------------------------------------------------------
         private void AutoDemolishAbandoned(bool alsoCondemned)
         {
             var em = EntityManager;
 
-            // 1) drop abandoned
+            // 1) bulldoze abandoned
             using (var abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
             {
                 for (int i = 0; i < abandoned.Length; i++)
