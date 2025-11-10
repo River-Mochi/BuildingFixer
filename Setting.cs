@@ -4,12 +4,12 @@
 namespace AbandonedBuildingBoss
 {
     using System;
-    using Colossal.IO.AssetDatabase; // [FileLocation]
-    using Game.Modding;
-    using Game.Settings;
-    using Game.UI.Localization;
-    using Game.UI.Widgets;
-    using UnityEngine;
+    using Colossal.IO.AssetDatabase;           // [FileLocation]
+    using Game.Modding;                        // IMod, ModSetting
+    using Game.Settings;                       // SettingsUI*, DropdownItem<T>
+    using Game.UI.Localization;               // LocalizedString
+    using Game.UI.Widgets;                    // UI attributes
+    using UnityEngine;                         // Application.OpenURL
 
     [FileLocation("ModsSettings/ABB/AbandonedBuildingBoss")]
     [SettingsUITabOrder(kActionsTab, kAboutTab)]
@@ -17,21 +17,25 @@ namespace AbandonedBuildingBoss
     [SettingsUIShowGroupName(kStatusGroup, kAboutInfoGroup)]
     public sealed class Setting : ModSetting
     {
-        // Tabs
+        // ---- Tabs ----
         public const string kActionsTab = "Actions";
         public const string kAboutTab = "About";
 
-        // Groups
+        // ---- Groups ----
         public const string kActionsGroup = "Actions";
         public const string kButtonsGroup = "Buttons";
         public const string kStatusGroup = "Status";
         public const string kAboutInfoGroup = "Info";
         public const string kAboutLinksGroup = "Links";
 
-        // Backing fields
+        // ---- Backing fields ----
         private AbandonedHandlingMode m_Behavior = AbandonedHandlingMode.AutoDemolish;
         private bool m_AlsoClearCondemned = true;
         private string m_StatusText = "Idle";
+
+        // Example dropdowns
+        private string m_TemplateString = "First";
+        private string m_IconStyle = "ColoredPropless";
 
         // UI -> system flags (never saved)
         private bool m_RequestCount;
@@ -44,18 +48,26 @@ namespace AbandonedBuildingBoss
 
         public override void SetDefaults()
         {
-            // Default: behave like original mod – auto-demolish abandoned buildings.
+            // Main behavior
             m_Behavior = AbandonedHandlingMode.AutoDemolish;
             m_AlsoClearCondemned = true;
             m_StatusText = "Idle";
 
+            // Example dropdowns
+            m_TemplateString = "First";
+            m_IconStyle = "ColoredPropless";
+
+            // Buttons
             m_RequestCount = false;
             m_RequestClearRestore = false;
         }
 
-        // ====== ACTIONS TAB ======
+        // ====== MAIN BEHAVIOR DROPDOWN ======
+        // This follows CS2 dropdown pattern:
+        // public SomeEnum EnumDropdown { get; set; } = SomeEnum.Value1;
+        //
+        // plus a SettingsUIDropdown with a method returning DropdownItem<AbandonedHandlingMode>[].
 
-        // Main behavior dropdown
         [SettingsUISection(kActionsTab, kActionsGroup)]
         [SettingsUIDropdown(typeof(Setting), nameof(GetBehaviorDropdownItems))]
         public AbandonedHandlingMode Behavior
@@ -64,16 +76,13 @@ namespace AbandonedBuildingBoss
             set
             {
                 if (m_Behavior == value)
-                {
                     return;
-                }
 
                 m_Behavior = value;
                 ApplyAndSave();
             }
         }
 
-        // Also clear condemned
         [SettingsUISection(kActionsTab, kActionsGroup)]
         public bool AlsoClearCondemned
         {
@@ -81,18 +90,101 @@ namespace AbandonedBuildingBoss
             set
             {
                 if (m_AlsoClearCondemned == value)
-                {
                     return;
-                }
 
                 m_AlsoClearCondemned = value;
                 ApplyAndSave();
             }
         }
 
-        // ====== BUTTONS ROW (same group → same row) ======
+        // ====== EXAMPLE DROPDOWNS (for testing, exactly like wiki + AssetIcon) ======
 
-        // Left button – Count abandoned
+        // CO wiki template example:
+        // [SettingsUIDropdown(typeof(MyModSetting), nameof(GetStringDropdownItems))]
+        // public string StringDropdown { get; set; } = "First";
+
+        [SettingsUISection(kActionsTab, kActionsGroup)]
+        [SettingsUIDropdown(typeof(Setting), nameof(GetTemplateStringDropdownItems))]
+        public string TemplateStringDropdown
+        {
+            get => m_TemplateString;
+            set
+            {
+                if (m_TemplateString == value)
+                    return;
+
+                m_TemplateString = value;
+                ApplyAndSave();
+            }
+        }
+
+        public DropdownItem<string>[] GetTemplateStringDropdownItems()
+        {
+            var items = new[]
+            {
+                new DropdownItem<string>
+                {
+                    value = "First",
+                    displayName = GetOptionLabelLocaleID("Template.First"),
+                },
+                new DropdownItem<string>
+                {
+                    value = "Second",
+                    displayName = GetOptionLabelLocaleID("Template.Second"),
+                },
+                new DropdownItem<string>
+                {
+                    value = "Third",
+                    displayName = GetOptionLabelLocaleID("Template.Third"),
+                },
+            };
+
+            return items;
+        }
+
+        // AssetIcon-style example dropdown
+
+        [SettingsUISection(kActionsTab, kActionsGroup)]
+        [SettingsUIDropdown(typeof(Setting), nameof(GetIconStyleDropdownItems))]
+        public string IconStyleDropdown
+        {
+            get => m_IconStyle;
+            set
+            {
+                if (m_IconStyle == value)
+                    return;
+
+                m_IconStyle = value;
+                ApplyAndSave();
+            }
+        }
+
+        public DropdownItem<string>[] GetIconStyleDropdownItems()
+        {
+            var items = new[]
+            {
+                new DropdownItem<string>
+                {
+                    value = "ColoredPropless",
+                    displayName = GetOptionLabelLocaleID("ColoredPropless"),
+                },
+                new DropdownItem<string>
+                {
+                    value = "White",
+                    displayName = GetOptionLabelLocaleID("White"),
+                },
+                new DropdownItem<string>
+                {
+                    value = "Colored",
+                    displayName = GetOptionLabelLocaleID("Colored"),
+                },
+            };
+
+            return items;
+        }
+
+        // ====== BUTTONS ROW ======
+
         [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kButtonsGroup)]
@@ -100,12 +192,10 @@ namespace AbandonedBuildingBoss
         {
             set
             {
-                // UI thread: just flag; system consumes it.
                 m_RequestCount = true;
             }
         }
 
-        // Right button – Restore buildings now (one-shot, non-demolish)
         [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kButtonsGroup)]
@@ -113,12 +203,12 @@ namespace AbandonedBuildingBoss
         {
             set
             {
-                // UI thread: just flag; system consumes it.
                 m_RequestClearRestore = true;
             }
         }
 
         // ====== STATUS LINE ======
+
         [SettingsUISection(kActionsTab, kStatusGroup)]
         public string AbandonedStatus => m_StatusText;
 
@@ -130,7 +220,6 @@ namespace AbandonedBuildingBoss
         [SettingsUISection(kAboutTab, kAboutInfoGroup)]
         public string ModVersion => Mod.ModVersion;
 
-        // 2 buttons on same row in About
         [SettingsUIButtonGroup(kAboutLinksGroup)]
         [SettingsUIButton]
         [SettingsUISection(kAboutTab, kAboutLinksGroup)]
@@ -165,37 +254,30 @@ namespace AbandonedBuildingBoss
             }
         }
 
-        // ====== called by the system (simulation thread) ======
+        // ====== System-facing helpers ======
 
-        // System asks: “did player press Count?”
         public bool TryConsumeCountRequest()
         {
             if (!m_RequestCount)
-            {
                 return false;
-            }
 
             m_RequestCount = false;
             return true;
         }
 
-        // System asks: “did player press Restore Now?”
         public bool TryConsumeClearRestoreRequest()
         {
             if (!m_RequestClearRestore)
-            {
                 return false;
-            }
 
             m_RequestClearRestore = false;
             return true;
         }
 
-        // System updates the status line
         public void SetStatus(string text)
         {
             m_StatusText = text ?? string.Empty;
-            Apply(); // do NOT save to disk each frame
+            Apply(); // do NOT spam disk with ApplyAndSave here
         }
 
         public bool GetAlsoClearCondemned()
@@ -203,7 +285,8 @@ namespace AbandonedBuildingBoss
             return m_AlsoClearCondemned;
         }
 
-        // ====== dropdown items ======
+        // ====== Dropdown items for Behavior (enum) ======
+        // This uses explicit localized IDs so we control the 3 labels exactly.
 
         public DropdownItem<AbandonedHandlingMode>[] GetBehaviorDropdownItems()
         {
@@ -227,7 +310,7 @@ namespace AbandonedBuildingBoss
             };
         }
 
-        // ====== enum stays here so system can read Setting.AbandonedHandlingMode ======
+        // Enum used by dropdown & system
         public enum AbandonedHandlingMode
         {
             None = 0,

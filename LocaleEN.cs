@@ -4,7 +4,7 @@
 namespace AbandonedBuildingBoss
 {
     using System.Collections.Generic;
-    using Colossal;
+    using Colossal; // IDictionarySource, IDictionaryEntryError
 
     public sealed class LocaleEN : IDictionarySource
     {
@@ -21,7 +21,7 @@ namespace AbandonedBuildingBoss
         {
             var d = new Dictionary<string, string>
             {
-                // Settings title
+                // Settings root title
                 { m_Setting.GetSettingsLocaleID(), "Abandoned Building Boss [ABB]" },
 
                 // Tabs
@@ -35,7 +35,7 @@ namespace AbandonedBuildingBoss
                 { m_Setting.GetOptionGroupLocaleID(Setting.kAboutInfoGroup),  "" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kAboutLinksGroup), "Links" },
 
-                // Main behavior dropdown
+                // Main behavior dropdown (property label + desc)
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.Behavior)), "Handling behavior" },
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.Behavior)),
@@ -45,24 +45,10 @@ namespace AbandonedBuildingBoss
                     "• Do nothing – disable automatic handling; use the buttons instead."
                 },
 
-                // Behavior dropdown items (keys used by GetBehaviorDropdownItems)
+                // Behavior dropdown item texts (used by GetBehaviorDropdownItems via LocalizedString.Id)
                 { "ABB.Behavior.AutoDemolish",     "Auto-demolish abandoned" },
                 { "ABB.Behavior.RestoreBuildings", "Restore buildings (no demolish)" },
                 { "ABB.Behavior.None",             "Do nothing (manual only)" },
-
-                // Extra keys that match the auto-generated enum names in Options UI (for safety)
-                {
-                    "Options.AbandonedBuildingBoss.AbandonedBuildingBoss.Mod.ABANDONEDHANDLINGMODE[AutoDemolish]",
-                    "Auto-demolish abandoned"
-                },
-                {
-                    "Options.AbandonedBuildingBoss.AbandonedBuildingBoss.Mod.ABANDONEDHANDLINGMODE[DisableAbandonment]",
-                    "Restore buildings (no demolish)"
-                },
-                {
-                    "Options.AbandonedBuildingBoss.AbandonedBuildingBoss.Mod.ABANDONEDHANDLINGMODE[None]",
-                    "Do nothing (manual only)"
-                },
 
                 // Also clear condemned
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AlsoClearCondemned)), "Also clear condemned" },
@@ -70,6 +56,28 @@ namespace AbandonedBuildingBoss
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.AlsoClearCondemned)),
                     "Include condemned-only buildings when counting or handling."
                 },
+
+                // Template dropdown (CO docs example)
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.TemplateStringDropdown)), "Template string dropdown" },
+                {
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.TemplateStringDropdown)),
+                    "Simple example dropdown from the CS2 wiki (First / Second / Third)."
+                },
+
+                { m_Setting.GetOptionLabelLocaleID("Template.First"),  "First" },
+                { m_Setting.GetOptionLabelLocaleID("Template.Second"), "Second" },
+                { m_Setting.GetOptionLabelLocaleID("Template.Third"),  "Third" },
+
+                // AssetIcon-style dropdown
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.IconStyleDropdown)), "Icon style test dropdown" },
+                {
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.IconStyleDropdown)),
+                    "Dropdown styled like Asset Icon Library (Colored / White / Colored with props)."
+                },
+
+                { m_Setting.GetOptionLabelLocaleID("ColoredPropless"), "Colored & No Props" },
+                { m_Setting.GetOptionLabelLocaleID("White"),           "White & No Props" },
+                { m_Setting.GetOptionLabelLocaleID("Colored"),         "Colored With Props" },
 
                 // Buttons
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.CountAbandoned)), "Count abandoned" },

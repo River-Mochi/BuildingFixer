@@ -1,4 +1,4 @@
-// File: Mod.cs
+// Mod.cs
 // Purpose: entrypoint for Abandoned Building Boss [ABB]; registers settings, locales, and ECS system.
 
 namespace AbandonedBuildingBoss
@@ -31,17 +31,16 @@ namespace AbandonedBuildingBoss
         {
             Log.Info($"{ModName} v{ModVersion} OnLoad");
 
-            // Create settings object
             var setting = new Setting(this);
             Settings = setting;
 
-            // Register in Options UI first
+            // 1) Register in Options UI
             setting.RegisterInOptionsUI();
 
-            // Load saved values (or defaults on first run)
+            // 2) Load saved settings (or apply defaults)
             AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
 
-            // Register English locale
+            // 3) Register en-US locale
             var gm = GameManager.instance;
             var lm = gm?.localizationManager;
             if (lm != null)
@@ -49,7 +48,7 @@ namespace AbandonedBuildingBoss
                 lm.AddSource("en-US", new LocaleEN(setting));
             }
 
-            // VERY IMPORTANT: register our ECS system so OnUpdate actually runs
+            // 4) Register ECS system to run in GameSimulation phase
             updateSystem.UpdateAfter<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
 
             if (gm != null && gm.modManager.TryGetExecutableAsset(this, out var asset))

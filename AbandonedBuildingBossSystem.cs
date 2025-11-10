@@ -12,6 +12,7 @@ namespace AbandonedBuildingBoss
     using Game.Tools;
     using Unity.Collections;
     using Unity.Entities;
+    using Purpose = Colossal.Serialization.Entities.Purpose;
 
     public partial class AbandonedBuildingBossSystem : GameSystemBase
     {
@@ -20,8 +21,8 @@ namespace AbandonedBuildingBoss
         private EntityQuery m_AbandonedQuery;
         private EntityQuery m_CondemnedQuery;
 
-        // Set via OnGameLoadingComplete (GameMode.Game only)
-        private bool m_IsGameLoaded;
+        // “City loaded?” flag, driven purely by GameMode.
+        private bool m_IsCityLoaded;
 
         protected override void OnCreate()
         {
@@ -59,35 +60,34 @@ namespace AbandonedBuildingBoss
                     },
                 });
 
-            // Run only when there are abandoned buildings; buttons still work via city-loaded flag.
-            RequireForUpdate(m_AbandonedQuery);
-
+            // No RequireForUpdate: we must still tick with 0 abandoned so buttons work.
 #if DEBUG
             Mod.Log.Info("[ABB] AbandonedBuildingBossSystem created.");
 #endif
         }
 
-        protected override void OnGamePreload(Colossal.Serialization.Entities.Purpose purpose, GameMode mode)
+        protected override void OnGamePreload(Purpose purpose, GameMode mode)
         {
             base.OnGamePreload(purpose, mode);
 
-            // Enable system in Game or Editor scenes; we'll still gate logic on Game-only.
+            // Run in Game or Editor scenes; actual “city loaded” is checked separately.
             Enabled = mode.IsGameOrEditor();
+            m_IsCityLoaded = false;
 
 #if DEBUG
             Mod.Log.Info($"[ABB] OnGamePreload: purpose={purpose}, mode={mode}, enabled={Enabled}");
 #endif
         }
 
-        protected override void OnGameLoadingComplete(Colossal.Serialization.Entities.Purpose purpose, GameMode mode)
+        protected override void OnGameLoadingComplete(Purpose purpose, GameMode mode)
         {
             base.OnGameLoadingComplete(purpose, mode);
 
-            // Consider "city loaded" only when in Game mode (not main menu, not editor)
-            m_IsGameLoaded = (mode & GameMode.Game) != 0;
+            // Agreed rule: if mode == GameMode.Game, then a city is loaded.
+            m_IsCityLoaded = (mode == GameMode.Game);
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] OnGameLoadingComplete: purpose={purpose}, mode={mode}, isGameLoaded={m_IsGameLoaded}");
+            Mod.Log.Info($"[ABB] OnGameLoadingComplete: purpose={purpose}, mode={mode}, isCityLoaded={m_IsCityLoaded}");
 #endif
         }
 
@@ -101,18 +101,13 @@ namespace AbandonedBuildingBoss
         protected override void OnUpdate()
         {
             if (!Enabled)
-            {
                 return;
-            }
 
             var setting = Mod.Settings;
             if (setting == null)
-            {
                 return;
-            }
 
-            // 1) Manual buttons (always available, when a city is loaded)
-
+            // 1) Manual buttons – ALWAYS respond, but if no city, show "No city loaded".
             if (setting.TryConsumeCountRequest())
             {
                 DoCount(setting);
@@ -125,18 +120,14 @@ namespace AbandonedBuildingBoss
                 return;
             }
 
-            // 2) Automatic behavior (based on dropdown)
+            // 2) Automatic behavior (from dropdown) – only in a loaded city.
+            if (!m_IsCityLoaded)
+                return;
 
             var behavior = setting.Behavior;
             if (behavior == Setting.AbandonedHandlingMode.None)
             {
-                // Do nothing – manual only
-                return;
-            }
-
-            if (!IsCityLoaded())
-            {
-                // City not in Game mode; don't auto-handle.
+                // Manual only
                 return;
             }
 
@@ -160,7 +151,7 @@ namespace AbandonedBuildingBoss
 
         private void DoCount(Setting setting)
         {
-            if (!IsCityLoaded())
+            if (!m_IsCityLoaded)
             {
                 setting.SetStatus("No city loaded");
                 return;
@@ -193,7 +184,7 @@ namespace AbandonedBuildingBoss
 
         private void DoClearRestore(Setting setting)
         {
-            if (!IsCityLoaded())
+            if (!m_IsCityLoaded)
             {
                 setting.SetStatus("No city loaded");
                 return;
@@ -201,16 +192,8 @@ namespace AbandonedBuildingBoss
 
             bool alsoCondemned = setting.GetAlsoClearCondemned();
 
-            if (m_AbandonedQuery.IsEmptyIgnoreFilter &&
-                (!alsoCondemned || m_CondemnedQuery.IsEmptyIgnoreFilter))
-            {
-                setting.SetStatus("Nothing to restore");
-                return;
-            }
-
+            // Always run restore and then show fresh counts.
             ClearAbandonedWithoutBulldoze(alsoCondemned);
-
-            // Update status to show remaining counts
             DoCount(setting);
         }
 
@@ -270,9 +253,7 @@ namespace AbandonedBuildingBoss
 
             // Optional: condemned-only
             if (!alsoCondemned)
-            {
                 return;
-            }
 
             using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
             {
@@ -307,9 +288,7 @@ namespace AbandonedBuildingBoss
 
             // Condemned-only -> normal
             if (!alsoCondemned)
-            {
                 return;
-            }
 
             using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
             {
@@ -375,15 +354,6 @@ namespace AbandonedBuildingBoss
 #if DEBUG
             Mod.Log.Info($"[ABB] RestoreBuilding -> {building.Index}:{building.Version} (alsoCondemned={alsoCondemned})");
 #endif
-        }
-
-        // ------------------------------------------------------------
-        // City loaded check – GameMode-based
-        // ------------------------------------------------------------
-
-        private bool IsCityLoaded()
-        {
-            return m_IsGameLoaded;
         }
     }
 }
