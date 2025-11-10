@@ -1,14 +1,9 @@
-// File: AbandonedBuildingBossSystem.cs
-// Purpose: runtime ECS logic for [ABB] — counts, clears, and auto-handles
+// AbandonedBuildingBossSystem.cs
+// Purpose: runtime ECS logic for ABB – counts, restores, and auto-handles
 //          abandoned / condemned buildings based on Setting.
-//
-// Notes:
-//   • MUST be 'partial' so it can merge with the generated file in obj/
-//   • Uses Colossal.Serialization.Entities.Purpose in OnGamePreload.
 
 namespace AbandonedBuildingBoss
 {
-    using Colossal.Serialization.Entities; // Purpose
     using Game;
     using Game.Areas;
     using Game.Buildings;
@@ -24,74 +19,75 @@ namespace AbandonedBuildingBoss
 
         private EntityQuery m_AbandonedQuery;
         private EntityQuery m_CondemnedQuery;
-        private EntityQuery m_AnyBuildingQuery;
+
+        // Set via OnGameLoadingComplete (GameMode.Game only)
+        private bool m_IsGameLoaded;
 
         protected override void OnCreate()
         {
             base.OnCreate();
 
-            // All abandoned buildings
-            m_AbandonedQuery = GetEntityQuery(new EntityQueryDesc
-            {
-                All = new[]
+            // Abandoned buildings
+            m_AbandonedQuery = GetEntityQuery(
+                new EntityQueryDesc
                 {
-                    ComponentType.ReadOnly<Abandoned>(),
-                    ComponentType.ReadOnly<Building>(),
-                },
-                None = new[]
-                {
-                    ComponentType.ReadOnly<Deleted>(),
-                    ComponentType.ReadOnly<Temp>(),
-                }
-            });
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<Abandoned>(),
+                        ComponentType.ReadOnly<Building>(),
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>(),
+                    },
+                });
 
-            // All condemned buildings
-            m_CondemnedQuery = GetEntityQuery(new EntityQueryDesc
-            {
-                All = new[]
+            // Condemned-only buildings
+            m_CondemnedQuery = GetEntityQuery(
+                new EntityQueryDesc
                 {
-                    ComponentType.ReadOnly<Condemned>(),
-                    ComponentType.ReadOnly<Building>(),
-                },
-                None = new[]
-                {
-                    ComponentType.ReadOnly<Deleted>(),
-                    ComponentType.ReadOnly<Temp>(),
-                }
-            });
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<Condemned>(),
+                        ComponentType.ReadOnly<Building>(),
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>(),
+                    },
+                });
 
-            // Any real building (for “No city loaded” check)
-            m_AnyBuildingQuery = GetEntityQuery(new EntityQueryDesc
-            {
-                All = new[]
-                {
-                    ComponentType.ReadOnly<Building>(),
-                },
-                None = new[]
-                {
-                    ComponentType.ReadOnly<Deleted>(),
-                    ComponentType.ReadOnly<Temp>(),
-                }
-            });
-
-            // IMPORTANT: no RequireForUpdate here.
-            // We always want OnUpdate to run (when Enabled) so it can consume button clicks,
-            // even when there are 0 abandoned / 0 condemned buildings.
+            // Run only when there are abandoned buildings; buttons still work via city-loaded flag.
+            RequireForUpdate(m_AbandonedQuery);
 
 #if DEBUG
-            Mod.Log.Info("[System] AbandonedBuildingBossSystem created.");
+            Mod.Log.Info("[ABB] AbandonedBuildingBossSystem created.");
 #endif
         }
 
-        protected override void OnGamePreload(Purpose purpose, GameMode mode)
+        protected override void OnGamePreload(Colossal.Serialization.Entities.Purpose purpose, GameMode mode)
         {
             base.OnGamePreload(purpose, mode);
 
-            // Only run inside a loaded game / editor map.
+            // Enable system in Game or Editor scenes; we'll still gate logic on Game-only.
             Enabled = mode.IsGameOrEditor();
 
 #if DEBUG
-            Mod.Log.Info($"[System] OnGamePreload: purpose={purpose}, mode={mode}, enabled={Enabled}");
+            Mod.Log.Info($"[ABB] OnGamePreload: purpose={purpose}, mode={mode}, enabled={Enabled}");
+#endif
+        }
+
+        protected override void OnGameLoadingComplete(Colossal.Serialization.Entities.Purpose purpose, GameMode mode)
+        {
+            base.OnGameLoadingComplete(purpose, mode);
+
+            // Consider "city loaded" only when in Game mode (not main menu, not editor)
+            m_IsGameLoaded = (mode & GameMode.Game) != 0;
+
+#if DEBUG
+            Mod.Log.Info($"[ABB] OnGameLoadingComplete: purpose={purpose}, mode={mode}, isGameLoaded={m_IsGameLoaded}");
 #endif
         }
 
@@ -105,44 +101,55 @@ namespace AbandonedBuildingBoss
         protected override void OnUpdate()
         {
             if (!Enabled)
+            {
                 return;
+            }
 
             var setting = Mod.Settings;
             if (setting == null)
+            {
                 return;
+            }
 
-            // 1) user clicked "Count abandoned"
+            // 1) Manual buttons (always available, when a city is loaded)
+
             if (setting.TryConsumeCountRequest())
             {
                 DoCount(setting);
                 return;
             }
 
-            // 2) user clicked "Restore buildings"
-            if (setting.TryConsumeClearRequest())
+            if (setting.TryConsumeClearRestoreRequest())
             {
-                bool alsoCondemned = setting.GetAlsoClearCondemned();
-                DoRestore(setting, alsoCondemned);
+                DoClearRestore(setting);
                 return;
             }
 
-            // 3) automatic behavior from dropdown
+            // 2) Automatic behavior (based on dropdown)
+
             var behavior = setting.Behavior;
-            bool alsoClearCondemned = setting.GetAlsoClearCondemned();
+            if (behavior == Setting.AbandonedHandlingMode.None)
+            {
+                // Do nothing – manual only
+                return;
+            }
+
+            if (!IsCityLoaded())
+            {
+                // City not in Game mode; don't auto-handle.
+                return;
+            }
+
+            bool alsoCondemned = setting.GetAlsoClearCondemned();
 
             switch (behavior)
             {
                 case Setting.AbandonedHandlingMode.AutoDemolish:
-                    AutoDemolishAbandoned(alsoClearCondemned);
+                    AutoDemolishAbandoned(alsoCondemned);
                     break;
 
                 case Setting.AbandonedHandlingMode.DisableAbandonment:
-                    ClearAbandonedWithoutBulldoze(alsoClearCondemned);
-                    break;
-
-                case Setting.AbandonedHandlingMode.None:
-                default:
-                    // do nothing
+                    ClearAbandonedWithoutBulldoze(alsoCondemned);
                     break;
             }
         }
@@ -150,44 +157,50 @@ namespace AbandonedBuildingBoss
         // ------------------------------------------------------------
         // Counting
         // ------------------------------------------------------------
+
         private void DoCount(Setting setting)
         {
-            // “No city loaded” = literally no buildings in the world yet.
-            bool anyBuildings = !m_AnyBuildingQuery.IsEmptyIgnoreFilter;
-            if (!anyBuildings)
+            if (!IsCityLoaded())
             {
                 setting.SetStatus("No city loaded");
                 return;
             }
 
-            int abandonedCount = m_AbandonedQuery.CalculateEntityCount();
-            int condemnedCount = setting.GetAlsoClearCondemned()
-                                  ? m_CondemnedQuery.CalculateEntityCount()
-                                  : 0;
-
-            if (setting.GetAlsoClearCondemned())
+            int abandonedCount;
+            using (NativeArray<Entity> arr = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
             {
-                setting.SetStatus($"Abandoned: {abandonedCount}  |  Condemned: {condemnedCount}");
+                abandonedCount = arr.Length;
             }
-            else
+
+            if (!setting.GetAlsoClearCondemned())
             {
                 setting.SetStatus($"Abandoned: {abandonedCount}");
+                return;
             }
+
+            int condemnedCount;
+            using (NativeArray<Entity> arr2 = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
+            {
+                condemnedCount = arr2.Length;
+            }
+
+            setting.SetStatus($"Abandoned: {abandonedCount}  |  Condemned: {condemnedCount}");
         }
 
         // ------------------------------------------------------------
-        // Restore button
+        // Manual restore button
         // ------------------------------------------------------------
-        private void DoRestore(Setting setting, bool alsoCondemned)
+
+        private void DoClearRestore(Setting setting)
         {
-            bool anyBuildings = !m_AnyBuildingQuery.IsEmptyIgnoreFilter;
-            if (!anyBuildings)
+            if (!IsCityLoaded())
             {
                 setting.SetStatus("No city loaded");
                 return;
             }
 
-            // If there are no abandoned / condemned, just update status.
+            bool alsoCondemned = setting.GetAlsoClearCondemned();
+
             if (m_AbandonedQuery.IsEmptyIgnoreFilter &&
                 (!alsoCondemned || m_CondemnedQuery.IsEmptyIgnoreFilter))
             {
@@ -197,82 +210,94 @@ namespace AbandonedBuildingBoss
 
             ClearAbandonedWithoutBulldoze(alsoCondemned);
 
-            // Recompute counts afterwards
+            // Update status to show remaining counts
             DoCount(setting);
         }
 
         // ------------------------------------------------------------
-        // MODE 1: bulldoze (original behavior)
+        // MODE 1: bulldoze (original mod behavior)
         // ------------------------------------------------------------
+
         private void AutoDemolishAbandoned(bool alsoCondemned)
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
 
-            // 1) bulldoze abandoned
-            using (var abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
+            // Abandoned buildings
+            using (NativeArray<Entity> abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
             {
                 for (int i = 0; i < abandoned.Length; i++)
                 {
-                    var building = abandoned[i];
+                    Entity building = abandoned[i];
 
-                    // delete sub-areas
+                    // Sub-areas
                     if (em.HasBuffer<SubArea>(building))
                     {
-                        var buf = em.GetBuffer<SubArea>(building);
-                        foreach (var sub in buf)
-                            em.AddComponent<Deleted>(sub.m_Area);
+                        DynamicBuffer<SubArea> buf = em.GetBuffer<SubArea>(building);
+                        for (int j = 0; j < buf.Length; j++)
+                        {
+                            em.AddComponent<Deleted>(buf[j].m_Area);
+                        }
                     }
 
-                    // delete sub-nets
+                    // Sub-nets
                     if (em.HasBuffer<SubNet>(building))
                     {
-                        var buf = em.GetBuffer<SubNet>(building);
-                        foreach (var sub in buf)
-                            em.AddComponent<Deleted>(sub.m_SubNet);
+                        DynamicBuffer<SubNet> buf = em.GetBuffer<SubNet>(building);
+                        for (int j = 0; j < buf.Length; j++)
+                        {
+                            em.AddComponent<Deleted>(buf[j].m_SubNet);
+                        }
                     }
 
-                    // delete sub-lanes
+                    // Sub-lanes
                     if (em.HasBuffer<SubLane>(building))
                     {
-                        var buf = em.GetBuffer<SubLane>(building);
-                        foreach (var sub in buf)
-                            em.AddComponent<Deleted>(sub.m_SubLane);
+                        DynamicBuffer<SubLane> buf = em.GetBuffer<SubLane>(building);
+                        for (int j = 0; j < buf.Length; j++)
+                        {
+                            em.AddComponent<Deleted>(buf[j].m_SubLane);
+                        }
                     }
 
-                    // delete main building
+                    // Main building
                     em.AddComponent<Deleted>(building);
 
 #if DEBUG
-                    Mod.Log.Info($"[System] AutoDemolish -> Deleted abandoned building {building.Index}:{building.Version}");
+                    Mod.Log.Info($"[ABB] AutoDemolish -> Deleted abandoned building {building.Index}:{building.Version}");
 #endif
                 }
             }
 
-            // 2) optionally bulldoze condemned-only
-            if (alsoCondemned)
+            // Optional: condemned-only
+            if (!alsoCondemned)
             {
-                using var condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp);
+                return;
+            }
+
+            using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
+            {
                 for (int i = 0; i < condemned.Length; i++)
                 {
-                    var building = condemned[i];
+                    Entity building = condemned[i];
                     em.AddComponent<Deleted>(building);
 
 #if DEBUG
-                    Mod.Log.Info($"[System] AutoDemolish -> Deleted condemned building {building.Index}:{building.Version}");
+                    Mod.Log.Info($"[ABB] AutoDemolish -> Deleted condemned building {building.Index}:{building.Version}");
 #endif
                 }
             }
         }
 
         // ------------------------------------------------------------
-        // MODE 2: keep building, clear flags
+        // MODE 2: keep buildings, clear flags / restore
         // ------------------------------------------------------------
+
         private void ClearAbandonedWithoutBulldoze(bool alsoCondemned)
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
 
-            // abandoned -> normal
-            using (var abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
+            // Abandoned -> normal
+            using (NativeArray<Entity> abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
             {
                 for (int i = 0; i < abandoned.Length; i++)
                 {
@@ -280,10 +305,14 @@ namespace AbandonedBuildingBoss
                 }
             }
 
-            // condemned-only -> normal
-            if (alsoCondemned)
+            // Condemned-only -> normal
+            if (!alsoCondemned)
             {
-                using var condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp);
+                return;
+            }
+
+            using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
+            {
                 for (int i = 0; i < condemned.Length; i++)
                 {
                     RestoreBuilding(em, condemned[i], true);
@@ -293,47 +322,68 @@ namespace AbandonedBuildingBoss
 
         private static void RestoreBuilding(EntityManager em, Entity building, bool alsoCondemned)
         {
-            // remove abandoned flag
+            // Remove abandoned flag
             if (em.HasComponent<Abandoned>(building))
             {
                 em.RemoveComponent<Abandoned>(building);
             }
 
-            // optionally remove condemned too
+            // Optionally remove condemned too
             if (alsoCondemned && em.HasComponent<Condemned>(building))
             {
                 em.RemoveComponent<Condemned>(building);
             }
 
-            // normalize market flags
+            // Normalize market flags
             if (em.HasComponent<PropertyOnMarket>(building))
             {
                 em.RemoveComponent<PropertyOnMarket>(building);
             }
+
             if (!em.HasComponent<PropertyToBeOnMarket>(building))
             {
                 em.AddComponent<PropertyToBeOnMarket>(building);
             }
 
-            // reset condition so DirtynessSystem stops maxing it
+            // Reset condition so DirtynessSystem stops maxing it
             if (em.HasComponent<BuildingCondition>(building))
             {
                 em.SetComponentData(building, new BuildingCondition { m_Condition = 0 });
             }
 
-            // safe-add basic service components
+            // Safe-add basic services
             if (!em.HasComponent<GarbageProducer>(building))
+            {
                 em.AddComponentData(building, default(GarbageProducer));
+            }
+
             if (!em.HasComponent<MailProducer>(building))
+            {
                 em.AddComponentData(building, default(MailProducer));
+            }
+
             if (!em.HasComponent<ElectricityConsumer>(building))
+            {
                 em.AddComponentData(building, default(ElectricityConsumer));
+            }
+
             if (!em.HasComponent<WaterConsumer>(building))
+            {
                 em.AddComponentData(building, default(WaterConsumer));
+            }
 
 #if DEBUG
-            Mod.Log.Info($"[System] RestoreBuilding -> {building.Index}:{building.Version} (alsoCondemned={alsoCondemned})");
+            Mod.Log.Info($"[ABB] RestoreBuilding -> {building.Index}:{building.Version} (alsoCondemned={alsoCondemned})");
 #endif
+        }
+
+        // ------------------------------------------------------------
+        // City loaded check – GameMode-based
+        // ------------------------------------------------------------
+
+        private bool IsCityLoaded()
+        {
+            return m_IsGameLoaded;
         }
     }
 }

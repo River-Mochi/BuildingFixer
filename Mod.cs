@@ -1,6 +1,5 @@
 // File: Mod.cs
-// Purpose: Entrypoint for Abandoned Building Boss [ABB]; registers settings, locale,
-//          and schedules the ECS system to run in GameSimulation.
+// Purpose: entrypoint for Abandoned Building Boss [ABB]; registers settings, locales, and ECS system.
 
 namespace AbandonedBuildingBoss
 {
@@ -12,22 +11,21 @@ namespace AbandonedBuildingBoss
 
     public sealed class Mod : IMod
     {
-        // About tab
         public const string ModName = "Abandoned Building Boss [ABB]";
         public const string ModVersion = "0.4.0";
 
-        // Logger (single id, no ".Mod" suffix)
         public static readonly ILog Log =
-            LogManager.GetLogger("AbandonedBuildingBoss").SetShowsErrorsInUI(
+            LogManager.GetLogger("AbandonedBuildingBoss")
 #if DEBUG
-                true
+                      .SetShowsErrorsInUI(true);
 #else
-                false
+                      .SetShowsErrorsInUI(false);
 #endif
-            );
 
-        // Settings instance exposed to the ECS system
-        public static Setting? Settings;
+        public static Setting? Settings
+        {
+            get; private set;
+        }
 
         public void OnLoad(UpdateSystem updateSystem)
         {
@@ -37,29 +35,32 @@ namespace AbandonedBuildingBoss
             var setting = new Setting(this);
             Settings = setting;
 
-            // Register Options UI first
+            // Register in Options UI first
             setting.RegisterInOptionsUI();
 
-            // Load saved values (or create new with defaults on first run)
+            // Load saved values (or defaults on first run)
             AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
 
-            // Register locale
-            var lm = GameManager.instance?.localizationManager;
+            // Register English locale
+            var gm = GameManager.instance;
+            var lm = gm?.localizationManager;
             if (lm != null)
             {
                 lm.AddSource("en-US", new LocaleEN(setting));
             }
 
-            // Explicitly schedule ECS system (like original mod did)
-            // Run after vanilla building simulation.
+            // VERY IMPORTANT: register our ECS system so OnUpdate actually runs
             updateSystem.UpdateAfter<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
 
-            Log.Info("[ABB] AbandonedBuildingBossSystem scheduled after GameSimulation.");
+            if (gm != null && gm.modManager.TryGetExecutableAsset(this, out var asset))
+            {
+                Log.Info($"Current mod asset at {asset.path}");
+            }
         }
 
         public void OnDispose()
         {
-            Log.Info("OnDispose");
+            Log.Info(nameof(OnDispose));
 
             if (Settings != null)
             {

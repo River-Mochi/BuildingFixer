@@ -1,20 +1,19 @@
-// File: Setting.cs
-// Purpose: Options UI for ABB – 2 tabs, 1 dropdown, 1 toggle, 2 buttons on same row, status line.
+// Setting.cs
+// Purpose: Options UI for Abandoned Building Boss [ABB].
 
 namespace AbandonedBuildingBoss
 {
     using System;
-    using Colossal.IO.AssetDatabase;
+    using Colossal.IO.AssetDatabase; // [FileLocation]
     using Game.Modding;
     using Game.Settings;
+    using Game.UI.Localization;
     using Game.UI.Widgets;
-    using UnityEngine; // Application.OpenURL
+    using UnityEngine;
 
-    // Order is important; this follows the CO / AssetIconLibrary pattern.
     [FileLocation("ModsSettings/ABB/AbandonedBuildingBoss")]
     [SettingsUITabOrder(kActionsTab, kAboutTab)]
     [SettingsUIGroupOrder(kActionsGroup, kButtonsGroup, kStatusGroup, kAboutInfoGroup, kAboutLinksGroup)]
-    // Do NOT show "Actions" header; Status + About Info still show their group names.
     [SettingsUIShowGroupName(kStatusGroup, kAboutInfoGroup)]
     public sealed class Setting : ModSetting
     {
@@ -30,30 +29,33 @@ namespace AbandonedBuildingBoss
         public const string kAboutLinksGroup = "Links";
 
         // Backing fields
-        // Default = AutoDemolish so behavior matches original mod.
         private AbandonedHandlingMode m_Behavior = AbandonedHandlingMode.AutoDemolish;
         private bool m_AlsoClearCondemned = true;
         private string m_StatusText = "Idle";
 
         // UI -> system flags (never saved)
         private bool m_RequestCount;
-        private bool m_RequestClear;
+        private bool m_RequestClearRestore;
 
-        public Setting(IMod mod) : base(mod) { }
+        public Setting(IMod mod)
+            : base(mod)
+        {
+        }
 
         public override void SetDefaults()
         {
-            m_Behavior = AbandonedHandlingMode.AutoDemolish; // original behavior
+            // Default: behave like original mod – auto-demolish abandoned buildings.
+            m_Behavior = AbandonedHandlingMode.AutoDemolish;
             m_AlsoClearCondemned = true;
             m_StatusText = "Idle";
+
             m_RequestCount = false;
-            m_RequestClear = false;
+            m_RequestClearRestore = false;
         }
 
         // ====== ACTIONS TAB ======
 
-        // 1) Dropdown – implemented exactly like Asset Icon Library:
-        //    [SettingsUIDropdown(typeof(Setting), nameof(GetBehaviorDropdownItems))]
+        // Main behavior dropdown
         [SettingsUISection(kActionsTab, kActionsGroup)]
         [SettingsUIDropdown(typeof(Setting), nameof(GetBehaviorDropdownItems))]
         public AbandonedHandlingMode Behavior
@@ -62,14 +64,16 @@ namespace AbandonedBuildingBoss
             set
             {
                 if (m_Behavior == value)
+                {
                     return;
+                }
 
                 m_Behavior = value;
                 ApplyAndSave();
             }
         }
 
-        // 2) Toggle in the SAME group
+        // Also clear condemned
         [SettingsUISection(kActionsTab, kActionsGroup)]
         public bool AlsoClearCondemned
         {
@@ -77,7 +81,9 @@ namespace AbandonedBuildingBoss
             set
             {
                 if (m_AlsoClearCondemned == value)
+                {
                     return;
+                }
 
                 m_AlsoClearCondemned = value;
                 ApplyAndSave();
@@ -86,7 +92,7 @@ namespace AbandonedBuildingBoss
 
         // ====== BUTTONS ROW (same group → same row) ======
 
-        // Left button: Count abandoned
+        // Left button – Count abandoned
         [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kButtonsGroup)]
@@ -94,20 +100,21 @@ namespace AbandonedBuildingBoss
         {
             set
             {
-                // Options UI thread: just flag; ECS system will consume it.
+                // UI thread: just flag; system consumes it.
                 m_RequestCount = true;
             }
         }
 
-        // Right button: Restore buildings (was ClearNow)
+        // Right button – Restore buildings now (one-shot, non-demolish)
         [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kButtonsGroup)]
-        public bool RestoreBuildings
+        public bool RestoreNow
         {
             set
             {
-                m_RequestClear = true;
+                // UI thread: just flag; system consumes it.
+                m_RequestClearRestore = true;
             }
         }
 
@@ -135,7 +142,9 @@ namespace AbandonedBuildingBoss
                 {
                     Application.OpenURL("https://mods.paradoxplaza.com/authors/kimosabe1?orderBy=desc&sortBy=best&time=alltime");
                 }
-                catch (Exception) { }
+                catch (Exception)
+                {
+                }
             }
         }
 
@@ -150,72 +159,80 @@ namespace AbandonedBuildingBoss
                 {
                     Application.OpenURL("https://discord.gg/HTav7ARPs2");
                 }
-                catch (Exception) { }
+                catch (Exception)
+                {
+                }
             }
         }
 
         // ====== called by the system (simulation thread) ======
 
-        // system asks: “did player press Count?”
+        // System asks: “did player press Count?”
         public bool TryConsumeCountRequest()
         {
             if (!m_RequestCount)
+            {
                 return false;
+            }
 
             m_RequestCount = false;
             return true;
         }
 
-        // system asks: “did player press Restore?”
-        public bool TryConsumeClearRequest()
+        // System asks: “did player press Restore Now?”
+        public bool TryConsumeClearRestoreRequest()
         {
-            if (!m_RequestClear)
+            if (!m_RequestClearRestore)
+            {
                 return false;
+            }
 
-            m_RequestClear = false;
+            m_RequestClearRestore = false;
             return true;
         }
 
-        // system updates the status line
+        // System updates the status line
         public void SetStatus(string text)
         {
             m_StatusText = text ?? string.Empty;
-            Apply();            // do NOT save to disk each frame
+            Apply(); // do NOT save to disk each frame
         }
 
-        public bool GetAlsoClearCondemned() => m_AlsoClearCondemned;
+        public bool GetAlsoClearCondemned()
+        {
+            return m_AlsoClearCondemned;
+        }
 
-        // ====== dropdown items – CO / AssetIconLibrary style ======
-        // value = enum, displayName = GetOptionLabelLocaleID("Key") with LocaleEN entries.
+        // ====== dropdown items ======
+
         public DropdownItem<AbandonedHandlingMode>[] GetBehaviorDropdownItems()
         {
             return new[]
             {
                 new DropdownItem<AbandonedHandlingMode>
                 {
-                    value       = AbandonedHandlingMode.AutoDemolish,
-                    displayName = GetOptionLabelLocaleID(nameof(AbandonedHandlingMode.AutoDemolish)),
+                    value = AbandonedHandlingMode.AutoDemolish,
+                    displayName = LocalizedString.Id("ABB.Behavior.AutoDemolish"),
                 },
                 new DropdownItem<AbandonedHandlingMode>
                 {
-                    value       = AbandonedHandlingMode.DisableAbandonment,
-                    displayName = GetOptionLabelLocaleID(nameof(AbandonedHandlingMode.DisableAbandonment)),
+                    value = AbandonedHandlingMode.DisableAbandonment,
+                    displayName = LocalizedString.Id("ABB.Behavior.RestoreBuildings"),
                 },
                 new DropdownItem<AbandonedHandlingMode>
                 {
-                    value       = AbandonedHandlingMode.None,
-                    displayName = GetOptionLabelLocaleID(nameof(AbandonedHandlingMode.None)),
+                    value = AbandonedHandlingMode.None,
+                    displayName = LocalizedString.Id("ABB.Behavior.None"),
                 },
             };
         }
 
-        // ====== enum – system reads this via Setting.Behavior ======
+        // ====== enum stays here so system can read Setting.AbandonedHandlingMode ======
         public enum AbandonedHandlingMode
         {
-            // Keep order in sync with dropdown items (value doesn’t matter much, but cleaner).
-            AutoDemolish = 0, // default – like original mod
-            DisableAbandonment = 1, // restore/keep buildings
-            None = 2, // do nothing
+            None = 0,
+            AutoDemolish = 1,
+            DisableAbandonment = 2,
         }
     }
 }
