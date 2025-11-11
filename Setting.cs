@@ -4,12 +4,10 @@
 namespace AbandonedBuildingBoss
 {
     using System;
-    using Colossal.IO.AssetDatabase;           // [FileLocation]
-    using Game.Modding;                        // IMod, ModSetting
-    using Game.Settings;                       // SettingsUI*, DropdownItem<T>
-    using Game.UI.Localization;               // LocalizedString
-    using Game.UI.Widgets;                    // UI attributes
-    using UnityEngine;                         // Application.OpenURL
+    using Colossal.IO.AssetDatabase; // [FileLocation]
+    using Game.Modding;
+    using Game.Settings;
+    using UnityEngine;
 
     [FileLocation("ModsSettings/ABB/AbandonedBuildingBoss")]
     [SettingsUITabOrder(kActionsTab, kAboutTab)]
@@ -17,29 +15,33 @@ namespace AbandonedBuildingBoss
     [SettingsUIShowGroupName(kStatusGroup, kAboutInfoGroup)]
     public sealed class Setting : ModSetting
     {
-        // ---- Tabs ----
+        // Tabs
         public const string kActionsTab = "Actions";
         public const string kAboutTab = "About";
 
-        // ---- Groups ----
+        // Groups
         public const string kActionsGroup = "Actions";
         public const string kButtonsGroup = "Buttons";
         public const string kStatusGroup = "Status";
         public const string kAboutInfoGroup = "Info";
         public const string kAboutLinksGroup = "Links";
 
-        // ---- Backing fields ----
-        private AbandonedHandlingMode m_Behavior = AbandonedHandlingMode.AutoDemolish;
-        private bool m_AlsoClearCondemned = true;
+        // ====== OPTIONS (saved) =====================================
+
+        [SettingsUISection(kActionsTab, kActionsGroup)]
+        public bool AutoDemolishAbandoned { get; set; } = true;
+
+        [SettingsUISection(kActionsTab, kActionsGroup)]
+        public bool AutoDemolishCondemned { get; set; } = false;
+
+        // ====== STATUS BACKING ======================================
+
         private string m_StatusText = "Idle";
 
-        // Example dropdowns
-        private string m_TemplateString = "First";
-        private string m_IconStyle = "ColoredPropless";
-
         // UI -> system flags (never saved)
-        private bool m_RequestCount;
-        private bool m_RequestClearRestore;
+        private bool m_RequestRefreshCount;
+        private bool m_RequestRemodelAbandoned;
+        private bool m_RequestRemodelCondemned;
 
         public Setting(IMod mod)
             : base(mod)
@@ -48,171 +50,58 @@ namespace AbandonedBuildingBoss
 
         public override void SetDefaults()
         {
-            // Main behavior
-            m_Behavior = AbandonedHandlingMode.AutoDemolish;
-            m_AlsoClearCondemned = true;
+            AutoDemolishAbandoned = true;
+            AutoDemolishCondemned = false;
+
             m_StatusText = "Idle";
 
-            // Example dropdowns
-            m_TemplateString = "First";
-            m_IconStyle = "ColoredPropless";
-
-            // Buttons
-            m_RequestCount = false;
-            m_RequestClearRestore = false;
+            m_RequestRefreshCount = false;
+            m_RequestRemodelAbandoned = false;
+            m_RequestRemodelCondemned = false;
         }
 
-        // ====== MAIN BEHAVIOR DROPDOWN ======
-        // This follows CS2 dropdown pattern:
-        // public SomeEnum EnumDropdown { get; set; } = SomeEnum.Value1;
-        //
-        // plus a SettingsUIDropdown with a method returning DropdownItem<AbandonedHandlingMode>[].
-
-        [SettingsUISection(kActionsTab, kActionsGroup)]
-        [SettingsUIDropdown(typeof(Setting), nameof(GetBehaviorDropdownItems))]
-        public AbandonedHandlingMode Behavior
-        {
-            get => m_Behavior;
-            set
-            {
-                if (m_Behavior == value)
-                    return;
-
-                m_Behavior = value;
-                ApplyAndSave();
-            }
-        }
-
-        [SettingsUISection(kActionsTab, kActionsGroup)]
-        public bool AlsoClearCondemned
-        {
-            get => m_AlsoClearCondemned;
-            set
-            {
-                if (m_AlsoClearCondemned == value)
-                    return;
-
-                m_AlsoClearCondemned = value;
-                ApplyAndSave();
-            }
-        }
-
-        // ====== EXAMPLE DROPDOWNS (for testing, exactly like wiki + AssetIcon) ======
-
-        // CO wiki template example:
-        // [SettingsUIDropdown(typeof(MyModSetting), nameof(GetStringDropdownItems))]
-        // public string StringDropdown { get; set; } = "First";
-
-        [SettingsUISection(kActionsTab, kActionsGroup)]
-        [SettingsUIDropdown(typeof(Setting), nameof(GetTemplateStringDropdownItems))]
-        public string TemplateStringDropdown
-        {
-            get => m_TemplateString;
-            set
-            {
-                if (m_TemplateString == value)
-                    return;
-
-                m_TemplateString = value;
-                ApplyAndSave();
-            }
-        }
-
-        public DropdownItem<string>[] GetTemplateStringDropdownItems()
-        {
-            var items = new[]
-            {
-                new DropdownItem<string>
-                {
-                    value = "First",
-                    displayName = GetOptionLabelLocaleID("Template.First"),
-                },
-                new DropdownItem<string>
-                {
-                    value = "Second",
-                    displayName = GetOptionLabelLocaleID("Template.Second"),
-                },
-                new DropdownItem<string>
-                {
-                    value = "Third",
-                    displayName = GetOptionLabelLocaleID("Template.Third"),
-                },
-            };
-
-            return items;
-        }
-
-        // AssetIcon-style example dropdown
-
-        [SettingsUISection(kActionsTab, kActionsGroup)]
-        [SettingsUIDropdown(typeof(Setting), nameof(GetIconStyleDropdownItems))]
-        public string IconStyleDropdown
-        {
-            get => m_IconStyle;
-            set
-            {
-                if (m_IconStyle == value)
-                    return;
-
-                m_IconStyle = value;
-                ApplyAndSave();
-            }
-        }
-
-        public DropdownItem<string>[] GetIconStyleDropdownItems()
-        {
-            var items = new[]
-            {
-                new DropdownItem<string>
-                {
-                    value = "ColoredPropless",
-                    displayName = GetOptionLabelLocaleID("ColoredPropless"),
-                },
-                new DropdownItem<string>
-                {
-                    value = "White",
-                    displayName = GetOptionLabelLocaleID("White"),
-                },
-                new DropdownItem<string>
-                {
-                    value = "Colored",
-                    displayName = GetOptionLabelLocaleID("Colored"),
-                },
-            };
-
-            return items;
-        }
-
-        // ====== BUTTONS ROW ======
+        // ====== BUTTONS ROW (same group -> same row) ================
 
         [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kButtonsGroup)]
-        public bool CountAbandoned
+        public bool RemodelAbandonedNow
         {
             set
             {
-                m_RequestCount = true;
+                m_RequestRemodelAbandoned = true;
             }
         }
 
         [SettingsUIButtonGroup(kButtonsGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kButtonsGroup)]
-        public bool RestoreNow
+        public bool RemodelCondemnedNow
         {
             set
             {
-                m_RequestClearRestore = true;
+                m_RequestRemodelCondemned = true;
             }
         }
 
-        // ====== STATUS LINE ======
+        // ====== STATUS GROUP ========================================
 
+        // Refresh button (manual recalc)
+        [SettingsUIButton]
+        [SettingsUISection(kActionsTab, kStatusGroup)]
+        public bool RefreshCount
+        {
+            set
+            {
+                m_RequestRefreshCount = true;
+            }
+        }
+
+        // Read-only display string: "Abandoned: X | Condemned: Y" or "Idle"
         [SettingsUISection(kActionsTab, kStatusGroup)]
         public string AbandonedStatus => m_StatusText;
 
-        // ====== ABOUT TAB ======
+        // ====== ABOUT TAB ===========================================
 
         [SettingsUISection(kAboutTab, kAboutInfoGroup)]
         public string ModName => Mod.ModName;
@@ -254,68 +143,39 @@ namespace AbandonedBuildingBoss
             }
         }
 
-        // ====== System-facing helpers ======
+        // ====== System-facing helpers ===============================
 
-        public bool TryConsumeCountRequest()
+        public bool TryConsumeRefreshCountRequest()
         {
-            if (!m_RequestCount)
+            if (!m_RequestRefreshCount)
                 return false;
 
-            m_RequestCount = false;
+            m_RequestRefreshCount = false;
             return true;
         }
 
-        public bool TryConsumeClearRestoreRequest()
+        public bool TryConsumeRemodelAbandonedRequest()
         {
-            if (!m_RequestClearRestore)
+            if (!m_RequestRemodelAbandoned)
                 return false;
 
-            m_RequestClearRestore = false;
+            m_RequestRemodelAbandoned = false;
+            return true;
+        }
+
+        public bool TryConsumeRemodelCondemnedRequest()
+        {
+            if (!m_RequestRemodelCondemned)
+                return false;
+
+            m_RequestRemodelCondemned = false;
             return true;
         }
 
         public void SetStatus(string text)
         {
             m_StatusText = text ?? string.Empty;
-            Apply(); // do NOT spam disk with ApplyAndSave here
-        }
-
-        public bool GetAlsoClearCondemned()
-        {
-            return m_AlsoClearCondemned;
-        }
-
-        // ====== Dropdown items for Behavior (enum) ======
-        // This uses explicit localized IDs so we control the 3 labels exactly.
-
-        public DropdownItem<AbandonedHandlingMode>[] GetBehaviorDropdownItems()
-        {
-            return new[]
-            {
-                new DropdownItem<AbandonedHandlingMode>
-                {
-                    value = AbandonedHandlingMode.AutoDemolish,
-                    displayName = LocalizedString.Id("ABB.Behavior.AutoDemolish"),
-                },
-                new DropdownItem<AbandonedHandlingMode>
-                {
-                    value = AbandonedHandlingMode.DisableAbandonment,
-                    displayName = LocalizedString.Id("ABB.Behavior.RestoreBuildings"),
-                },
-                new DropdownItem<AbandonedHandlingMode>
-                {
-                    value = AbandonedHandlingMode.None,
-                    displayName = LocalizedString.Id("ABB.Behavior.None"),
-                },
-            };
-        }
-
-        // Enum used by dropdown & system
-        public enum AbandonedHandlingMode
-        {
-            None = 0,
-            AutoDemolish = 1,
-            DisableAbandonment = 2,
+            Apply(); // UI only, don't spam disk
         }
     }
 }

@@ -12,7 +12,7 @@ namespace AbandonedBuildingBoss
     public sealed class Mod : IMod
     {
         public const string ModName = "Abandoned Building Boss [ABB]";
-        public const string ModVersion = "0.4.0";
+        public const string ModVersion = "0.5.0"; // bump as you like
 
         public static readonly ILog Log =
             LogManager.GetLogger("AbandonedBuildingBoss")
@@ -34,13 +34,13 @@ namespace AbandonedBuildingBoss
             var setting = new Setting(this);
             Settings = setting;
 
-            // 1) Register in Options UI
+            // Register in Options UI
             setting.RegisterInOptionsUI();
 
-            // 2) Load saved settings (or apply defaults)
+            // Load saved settings (or apply defaults)
             AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
 
-            // 3) Register en-US locale
+            // Locale
             var gm = GameManager.instance;
             var lm = gm?.localizationManager;
             if (lm != null)
@@ -48,7 +48,7 @@ namespace AbandonedBuildingBoss
                 lm.AddSource("en-US", new LocaleEN(setting));
             }
 
-            // 4) Register ECS system to run in GameSimulation phase
+            // Register ECS system to run in GameSimulation phase
             updateSystem.UpdateAfter<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
 
             if (gm != null && gm.modManager.TryGetExecutableAsset(this, out var asset))

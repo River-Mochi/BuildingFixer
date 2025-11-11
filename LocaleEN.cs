@@ -4,7 +4,7 @@
 namespace AbandonedBuildingBoss
 {
     using System.Collections.Generic;
-    using Colossal; // IDictionarySource, IDictionaryEntryError
+    using Colossal;
 
     public sealed class LocaleEN : IDictionarySource
     {
@@ -31,69 +31,48 @@ namespace AbandonedBuildingBoss
                 // Groups
                 { m_Setting.GetOptionGroupLocaleID(Setting.kActionsGroup),    "Actions" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kButtonsGroup),    "" },
-                { m_Setting.GetOptionGroupLocaleID(Setting.kStatusGroup),     "Status" },
+                { m_Setting.GetOptionGroupLocaleID(Setting.kStatusGroup),     "STATUS" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kAboutInfoGroup),  "" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kAboutLinksGroup), "Links" },
 
-                // Main behavior dropdown (property label + desc)
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.Behavior)), "Handling behavior" },
+                // Auto options
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AutoDemolishAbandoned)), "Auto demolish abandoned" },
                 {
-                    m_Setting.GetOptionDescLocaleID(nameof(Setting.Behavior)),
-                    "What ABB should do to abandoned / condemned buildings each update.\n" +
-                    "• Auto-demolish – bulldoze abandoned buildings (original mod behavior).\n" +
-                    "• Restore buildings – keep the buildings, clear flags, and reset condition.\n" +
-                    "• Do nothing – disable automatic handling; use the buttons instead."
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.AutoDemolishAbandoned)),
+                    "While enabled, ABB will automatically bulldoze abandoned buildings."
                 },
 
-                // Behavior dropdown item texts (used by GetBehaviorDropdownItems via LocalizedString.Id)
-                { "ABB.Behavior.AutoDemolish",     "Auto-demolish abandoned" },
-                { "ABB.Behavior.RestoreBuildings", "Restore buildings (no demolish)" },
-                { "ABB.Behavior.None",             "Do nothing (manual only)" },
-
-                // Also clear condemned
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AlsoClearCondemned)), "Also clear condemned" },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AutoDemolishCondemned)), "Auto demolish condemned" },
                 {
-                    m_Setting.GetOptionDescLocaleID(nameof(Setting.AlsoClearCondemned)),
-                    "Include condemned-only buildings when counting or handling."
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.AutoDemolishCondemned)),
+                    "While enabled, ABB will automatically bulldoze condemned buildings."
                 },
 
-                // Template dropdown (CO docs example)
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.TemplateStringDropdown)), "Template string dropdown" },
+                // Buttons – remodel
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RemodelAbandonedNow)), "Remodel Abandoned Now" },
                 {
-                    m_Setting.GetOptionDescLocaleID(nameof(Setting.TemplateStringDropdown)),
-                    "Simple example dropdown from the CS2 wiki (First / Second / Third)."
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.RemodelAbandonedNow)),
+                    "Restore abandoned buildings without demolishing them. Clears the abandoned flag, resets condition, and restores services."
                 },
 
-                { m_Setting.GetOptionLabelLocaleID("Template.First"),  "First" },
-                { m_Setting.GetOptionLabelLocaleID("Template.Second"), "Second" },
-                { m_Setting.GetOptionLabelLocaleID("Template.Third"),  "Third" },
-
-                // AssetIcon-style dropdown
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.IconStyleDropdown)), "Icon style test dropdown" },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RemodelCondemnedNow)), "Remodel Condemned" },
                 {
-                    m_Setting.GetOptionDescLocaleID(nameof(Setting.IconStyleDropdown)),
-                    "Dropdown styled like Asset Icon Library (Colored / White / Colored with props)."
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.RemodelCondemnedNow)),
+                    "Restore condemned buildings without demolishing them. Clears the condemned flag, resets condition, and restores services."
                 },
 
-                { m_Setting.GetOptionLabelLocaleID("ColoredPropless"), "Colored & No Props" },
-                { m_Setting.GetOptionLabelLocaleID("White"),           "White & No Props" },
-                { m_Setting.GetOptionLabelLocaleID("Colored"),         "Colored With Props" },
-
-                // Buttons
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.CountAbandoned)), "Count abandoned" },
+                // Status + refresh
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RefreshCount)), "Refresh Count" },
                 {
-                    m_Setting.GetOptionDescLocaleID(nameof(Setting.CountAbandoned)),
-                    "Scan the current city and show the number of abandoned / condemned buildings."
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.RefreshCount)),
+                    "Re-scan the current city and update abandoned / condemned / collapsed counts in the status line."
                 },
 
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RestoreNow)), "Restore buildings now" },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AbandonedStatus)), "STATUS" },
                 {
-                    m_Setting.GetOptionDescLocaleID(nameof(Setting.RestoreNow)),
-                    "Restore abandoned (and optionally condemned) buildings without demolishing them."
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.AbandonedStatus)),
+                    "Shows the latest counts or result message (for example: \"Abandoned: 0 | Condemned: 1711 | Collapsed: 3\")."
                 },
-
-                // Status line
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AbandonedStatus)), "Abandoned buildings" },
 
                 // About tab
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.ModName)),    "Mod name" },

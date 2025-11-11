@@ -1,6 +1,6 @@
 // AbandonedBuildingBossSystem.cs
-// Purpose: runtime ECS logic for ABB – counts, restores, and auto-handles
-//          abandoned / condemned buildings based on Setting.
+// Purpose: runtime ECS logic for ABB – counts, auto-demolish, and remodel
+//          abandoned / condemned buildings, and also counts collapsed ones.
 
 namespace AbandonedBuildingBoss
 {
@@ -21,8 +21,12 @@ namespace AbandonedBuildingBoss
         private EntityQuery m_AbandonedQuery;
         private EntityQuery m_CondemnedQuery;
 
-        // “City loaded?” flag, driven purely by GameMode.
+        // “Collapsed” in ABB = Destroyed + Building (same as CollapsedBuildingSystem’s logic)
+        private EntityQuery m_CollapsedBuildingQuery;
+
+        // GameMode-based "city loaded" flag
         private bool m_IsCityLoaded;
+        private bool m_PendingInitialCount;
 
         protected override void OnCreate()
         {
@@ -60,7 +64,25 @@ namespace AbandonedBuildingBoss
                     },
                 });
 
-            // No RequireForUpdate: we must still tick with 0 abandoned so buttons work.
+            // Collapsed buildings: Destroyed + Building, not yet Deleted/Temp.
+            m_CollapsedBuildingQuery = GetEntityQuery(
+                new EntityQueryDesc
+                {
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<Destroyed>(),
+                        ComponentType.ReadOnly<Building>(),
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>(),
+                    },
+                });
+
+            m_IsCityLoaded = false;
+            m_PendingInitialCount = false;
+
 #if DEBUG
             Mod.Log.Info("[ABB] AbandonedBuildingBossSystem created.");
 #endif
@@ -73,6 +95,7 @@ namespace AbandonedBuildingBoss
             // Run in Game or Editor scenes; actual “city loaded” is checked separately.
             Enabled = mode.IsGameOrEditor();
             m_IsCityLoaded = false;
+            m_PendingInitialCount = false;
 
 #if DEBUG
             Mod.Log.Info($"[ABB] OnGamePreload: purpose={purpose}, mode={mode}, enabled={Enabled}");
@@ -83,8 +106,9 @@ namespace AbandonedBuildingBoss
         {
             base.OnGameLoadingComplete(purpose, mode);
 
-            // Agreed rule: if mode == GameMode.Game, then a city is loaded.
+            // Agreed rule: GameMode.Game means a city is loaded.
             m_IsCityLoaded = (mode == GameMode.Game);
+            m_PendingInitialCount = m_IsCityLoaded;
 
 #if DEBUG
             Mod.Log.Info($"[ABB] OnGameLoadingComplete: purpose={purpose}, mode={mode}, isCityLoaded={m_IsCityLoaded}");
@@ -107,46 +131,59 @@ namespace AbandonedBuildingBoss
             if (setting == null)
                 return;
 
-            // 1) Manual buttons – ALWAYS respond, but if no city, show "No city loaded".
-            if (setting.TryConsumeCountRequest())
+            // 0) One-time auto-count after a city is loaded
+            if (m_IsCityLoaded && m_PendingInitialCount)
+            {
+                DoCount(setting);
+                m_PendingInitialCount = false;
+            }
+
+            // 1) Manual actions (always respond; if no city -> "No city loaded")
+
+            if (setting.TryConsumeRefreshCountRequest())
             {
                 DoCount(setting);
                 return;
             }
 
-            if (setting.TryConsumeClearRestoreRequest())
+            if (setting.TryConsumeRemodelAbandonedRequest())
             {
-                DoClearRestore(setting);
+                DoRemodelAbandoned(setting);
                 return;
             }
 
-            // 2) Automatic behavior (from dropdown) – only in a loaded city.
+            if (setting.TryConsumeRemodelCondemnedRequest())
+            {
+                DoRemodelCondemned(setting);
+                return;
+            }
+
+            // 2) Automatic behavior – only when a city is loaded
             if (!m_IsCityLoaded)
                 return;
 
-            var behavior = setting.Behavior;
-            if (behavior == Setting.AbandonedHandlingMode.None)
+            bool autoAbandoned = setting.AutoDemolishAbandoned;
+            bool autoCondemned = setting.AutoDemolishCondemned;
+
+            if (!autoAbandoned && !autoCondemned)
+                return; // autos completely off
+
+            // If autos are enabled, run them every tick; counts are cheap relative to ECS.
+            if (autoAbandoned)
             {
-                // Manual only
-                return;
+                AutoDemolishAbandoned(includeCondemned: autoCondemned);
+            }
+            else if (autoCondemned)
+            {
+                AutoDemolishCondemnedOnly();
             }
 
-            bool alsoCondemned = setting.GetAlsoClearCondemned();
-
-            switch (behavior)
-            {
-                case Setting.AbandonedHandlingMode.AutoDemolish:
-                    AutoDemolishAbandoned(alsoCondemned);
-                    break;
-
-                case Setting.AbandonedHandlingMode.DisableAbandonment:
-                    ClearAbandonedWithoutBulldoze(alsoCondemned);
-                    break;
-            }
+            // After autos, refresh counts so UI reflects current state
+            DoCount(setting);
         }
 
         // ------------------------------------------------------------
-        // Counting
+        // Counting  (Abandoned / Condemned / Collapsed)
         // ------------------------------------------------------------
 
         private void DoCount(Setting setting)
@@ -163,26 +200,31 @@ namespace AbandonedBuildingBoss
                 abandonedCount = arr.Length;
             }
 
-            if (!setting.GetAlsoClearCondemned())
-            {
-                setting.SetStatus($"Abandoned: {abandonedCount}");
-                return;
-            }
-
             int condemnedCount;
             using (NativeArray<Entity> arr2 = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
             {
                 condemnedCount = arr2.Length;
             }
 
-            setting.SetStatus($"Abandoned: {abandonedCount}  |  Condemned: {condemnedCount}");
+            int collapsedCount;
+            using (NativeArray<Entity> arr3 = m_CollapsedBuildingQuery.ToEntityArray(Allocator.Temp))
+            {
+                collapsedCount = arr3.Length;
+            }
+
+            string status = $"Abandoned: {abandonedCount} | Condemned: {condemnedCount} | Collapsed: {collapsedCount}";
+            setting.SetStatus(status);
+
+#if DEBUG
+            Mod.Log.Info($"[ABB] DoCount -> {status}");
+#endif
         }
 
         // ------------------------------------------------------------
-        // Manual restore button
+        // Manual remodel buttons
         // ------------------------------------------------------------
 
-        private void DoClearRestore(Setting setting)
+        private void DoRemodelAbandoned(Setting setting)
         {
             if (!m_IsCityLoaded)
             {
@@ -190,24 +232,58 @@ namespace AbandonedBuildingBoss
                 return;
             }
 
-            bool alsoCondemned = setting.GetAlsoClearCondemned();
+            if (m_AbandonedQuery.IsEmptyIgnoreFilter)
+            {
+                setting.SetStatus("Nothing to remodel (abandoned)");
+                return;
+            }
 
-            // Always run restore and then show fresh counts.
-            ClearAbandonedWithoutBulldoze(alsoCondemned);
+#if DEBUG
+            Mod.Log.Info("[ABB] DoRemodelAbandoned -> restoring abandoned buildings without demolish.");
+#endif
+
+            ClearAbandonedWithoutBulldoze(alsoCondemned: false);
+            DoCount(setting);
+        }
+
+        private void DoRemodelCondemned(Setting setting)
+        {
+            if (!m_IsCityLoaded)
+            {
+                setting.SetStatus("No city loaded");
+                return;
+            }
+
+            if (m_CondemnedQuery.IsEmptyIgnoreFilter)
+            {
+                setting.SetStatus("Nothing to remodel (condemned)");
+                return;
+            }
+
+#if DEBUG
+            Mod.Log.Info("[ABB] DoRemodelCondemned -> restoring condemned buildings without demolish.");
+#endif
+
+            ClearCondemnedWithoutBulldoze();
             DoCount(setting);
         }
 
         // ------------------------------------------------------------
-        // MODE 1: bulldoze (original mod behavior)
+        // MODE 1: bulldoze
         // ------------------------------------------------------------
 
-        private void AutoDemolishAbandoned(bool alsoCondemned)
+        private void AutoDemolishAbandoned(bool includeCondemned)
         {
             EntityManager em = EntityManager;
+
+            int demolishedAbandoned = 0;
+            int demolishedCondemned = 0;
 
             // Abandoned buildings
             using (NativeArray<Entity> abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
             {
+                demolishedAbandoned = abandoned.Length;
+
                 for (int i = 0; i < abandoned.Length; i++)
                 {
                     Entity building = abandoned[i];
@@ -244,29 +320,48 @@ namespace AbandonedBuildingBoss
 
                     // Main building
                     em.AddComponent<Deleted>(building);
-
-#if DEBUG
-                    Mod.Log.Info($"[ABB] AutoDemolish -> Deleted abandoned building {building.Index}:{building.Version}");
-#endif
                 }
             }
 
             // Optional: condemned-only
-            if (!alsoCondemned)
-                return;
+            if (includeCondemned)
+            {
+                using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
+                {
+                    demolishedCondemned = condemned.Length;
+
+                    for (int i = 0; i < condemned.Length; i++)
+                    {
+                        Entity building = condemned[i];
+                        em.AddComponent<Deleted>(building);
+                    }
+                }
+            }
+
+#if DEBUG
+            Mod.Log.Info($"[ABB] AutoDemolishAbandoned -> demolished {demolishedAbandoned} abandoned, {demolishedCondemned} condemned (includeCondemned={includeCondemned}).");
+#endif
+        }
+
+        private void AutoDemolishCondemnedOnly()
+        {
+            EntityManager em = EntityManager;
+            int demolished = 0;
 
             using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
             {
+                demolished = condemned.Length;
+
                 for (int i = 0; i < condemned.Length; i++)
                 {
                     Entity building = condemned[i];
                     em.AddComponent<Deleted>(building);
-
-#if DEBUG
-                    Mod.Log.Info($"[ABB] AutoDemolish -> Deleted condemned building {building.Index}:{building.Version}");
-#endif
                 }
             }
+
+#if DEBUG
+            Mod.Log.Info($"[ABB] AutoDemolishCondemnedOnly -> demolished {demolished} condemned buildings.");
+#endif
         }
 
         // ------------------------------------------------------------
@@ -276,10 +371,14 @@ namespace AbandonedBuildingBoss
         private void ClearAbandonedWithoutBulldoze(bool alsoCondemned)
         {
             EntityManager em = EntityManager;
+            int restoredAbandoned = 0;
+            int restoredCondemned = 0;
 
             // Abandoned -> normal
             using (NativeArray<Entity> abandoned = m_AbandonedQuery.ToEntityArray(Allocator.Temp))
             {
+                restoredAbandoned = abandoned.Length;
+
                 for (int i = 0; i < abandoned.Length; i++)
                 {
                     RestoreBuilding(em, abandoned[i], alsoCondemned);
@@ -287,16 +386,42 @@ namespace AbandonedBuildingBoss
             }
 
             // Condemned-only -> normal
-            if (!alsoCondemned)
-                return;
+            if (alsoCondemned)
+            {
+                using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
+                {
+                    restoredCondemned = condemned.Length;
+
+                    for (int i = 0; i < condemned.Length; i++)
+                    {
+                        RestoreBuilding(em, condemned[i], true);
+                    }
+                }
+            }
+
+#if DEBUG
+            Mod.Log.Info($"[ABB] ClearAbandonedWithoutBulldoze -> restored {restoredAbandoned} abandoned, {restoredCondemned} condemned (alsoCondemned={alsoCondemned}).");
+#endif
+        }
+
+        private void ClearCondemnedWithoutBulldoze()
+        {
+            EntityManager em = EntityManager;
+            int restoredCondemned = 0;
 
             using (NativeArray<Entity> condemned = m_CondemnedQuery.ToEntityArray(Allocator.Temp))
             {
+                restoredCondemned = condemned.Length;
+
                 for (int i = 0; i < condemned.Length; i++)
                 {
-                    RestoreBuilding(em, condemned[i], true);
+                    RestoreBuilding(em, condemned[i], alsoCondemned: true);
                 }
             }
+
+#if DEBUG
+            Mod.Log.Info($"[ABB] ClearCondemnedWithoutBulldoze -> restored {restoredCondemned} condemned buildings.");
+#endif
         }
 
         private static void RestoreBuilding(EntityManager em, Entity building, bool alsoCondemned)
