@@ -9,6 +9,11 @@
     <!-- Assembly metadata -->
     <RootNamespace>AbandonedBuildingBoss</RootNamespace>
 
+  <!-- Single source of truth -->
+	  <Version>1.0.1</Version>
+	<AssemblyVersion>$(Version).0</AssemblyVersion>
+	<FileVersion>$(Version).0</FileVersion>  <!-- for file properties -->
+
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
@@ -53,7 +58,7 @@
 
   <!-- Link toolchain files for visibility in Solution Explorer -->
   <ItemGroup>
-    <None Include="$(ModPropsFile)"   Link="Properties\Mod.props" />
+    <None Include="$(ModPropsFile)" Link="Properties\Mod.props" />
     <None Include="$(ModTargetsFile)" Link="Properties\Mod.targets" />
   </ItemGroup>
 
