@@ -1,27 +1,25 @@
 // AbandonedBuildingBossSystem.cs
 // Purpose: ABB runtime — dependable, chunked cleanup and restore (allocation-free, no cursors).
-// Notes: Keeps your passes/queries; safe lifecycle flags; “run next tick” API; richer DEBUG logs.
+// Notes: Game-only gating; separate Collapsed handling; one-shot RestoreAbandonedNow; explicit icon removal.
 
 namespace AbandonedBuildingBoss
 {
     using Game;                    // Update cadence helpers
-    using Game.Buildings;          // Building, Abandoned, Condemned, Destroyed, BuildingCondition
+    using Game.Buildings;          // Building, Abandoned, Condemned, Destroyed, BuildingCondition, RescueTarget
     using Game.Common;             // Deleted, Temp, Updated
     using Game.Notifications;      // IconCommandSystem, IconCommandBuffer
+    using Game.Objects;            // Damaged
     using Game.Prefabs;            // BuildingConfigurationData
     using Game.SceneFlow;          // GameManager, GameMode
     using Game.Tools;
     using Unity.Entities;          // ECS core
     using Purpose = Colossal.Serialization.Entities.Purpose;
 
-    public partial class AbandonedBuildingBossSystem : GameSystemBase
+    public sealed partial class AbandonedBuildingBossSystem : GameSystemBase
     {
         // ---- Tuning / options ----
-        private const int kUpdateIntervalFrames = 16;   // cadence for simulation phase
-        private const int kBatchPerFrame = 256;         // per-frame work quota on heavy saves
-
-        // Avoid const so branches are not constant-folded (prevents CS0162).
-        private static readonly bool kDeleteChildren = true;
+        private const int kUpdateIntervalFrames = 8;   // cadence for simulation phase
+        private const int kBatchPerFrame = 2048;       // per-frame work quota on heavy saves
 
         // ---- Cached queries ----
         private EntityQuery m_AbandonedQuery;
@@ -30,7 +28,7 @@ namespace AbandonedBuildingBoss
         private EntityQuery m_BuildConfigQuery;
 
         // ---- Systems ----
-        private IconCommandSystem? m_IconSystem;
+        private IconCommandSystem? m_IconCommandSystem;
 
         // ---- State ----
         private bool m_IsCityLoaded;
@@ -46,7 +44,7 @@ namespace AbandonedBuildingBoss
             m_DoAutoCountOnce = true;
             Enabled = true;
 #if DEBUG
-            Mod.Log.Info("[ABB] RequestRunNextTick → scheduled.");
+            Mod.s_Log.Info("[ABB] RequestRunNextTick → scheduled.");
 #endif
         }
 
@@ -71,7 +69,7 @@ namespace AbandonedBuildingBoss
                 .Build();
 
             m_BuildConfigQuery = GetEntityQuery(ComponentType.ReadOnly<BuildingConfigurationData>());
-            m_IconSystem = World.GetOrCreateSystemManaged<IconCommandSystem>();
+            m_IconCommandSystem = World.GetOrCreateSystemManaged<IconCommandSystem>();
 
             // Set a safe initial status if we can
             if (Mod.Settings != null && GameManager.instance != null && GameManager.instance.gameMode == GameMode.MainMenu)
@@ -80,7 +78,7 @@ namespace AbandonedBuildingBoss
             Enabled = false; // only run when flagged
 #if DEBUG
             m_LoggedNoCityOnce = false;
-            Mod.Log.Info("[ABB] OnCreate");
+            Mod.s_Log.Info("[ABB] OnCreate");
 #endif
         }
 
@@ -91,15 +89,16 @@ namespace AbandonedBuildingBoss
             m_IsCityLoaded = false;
             m_DoAutoCountOnce = false;
 
-            // System only ticks in Game/Editor scenes (cheap gate)
-            Enabled = mode.IsGameOrEditor();
+            // Game-only (do NOT tick in Editor / MainMenu)
+            Enabled = (mode == GameMode.Game);
 
-            if (Mod.Settings != null && mode == GameMode.MainMenu)
+            if (Mod.Settings != null && !m_IsCityLoaded)
+            {
                 Mod.Settings.SetStatus("No city loaded", countedNow: false);
+            }
 
 #if DEBUG
-            m_LoggedNoCityOnce = false;
-            Mod.Log.Info($"[ABB] OnGamePreload purpose={purpose} mode={mode} enabled={Enabled}");
+            Mod.s_Log.Info($"[ABB] OnGamePreload purpose={purpose} mode={mode} enabled={Enabled}");
 #endif
         }
 
@@ -113,7 +112,7 @@ namespace AbandonedBuildingBoss
                 Enabled = true;
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] OnGameLoadingComplete mode={mode} → isCityLoaded={m_IsCityLoaded}, firstPass={m_DoAutoCountOnce}, enabled={Enabled}");
+            Mod.s_Log.Info($"[ABB] OnGameLoadingComplete mode={mode} → isCityLoaded={m_IsCityLoaded}, firstPass={m_DoAutoCountOnce}, enabled={Enabled}");
 #endif
         }
 
@@ -127,7 +126,7 @@ namespace AbandonedBuildingBoss
             if (!Enabled)
                 return;
 
-            var setting = Mod.Settings;
+            Setting? setting = Mod.Settings;
             if (setting == null)
                 return;
 
@@ -135,15 +134,15 @@ namespace AbandonedBuildingBoss
             if (setting.TryConsumeRefreshRequest())
             {
 #if DEBUG
-                Mod.Log.Info("[ABB] Refresh requested from Options → counting now.");
+                Mod.s_Log.Info("[ABB] Refresh requested from Options → counting now.");
 #endif
                 DoCount(setting, countedNow: true);
                 return;
             }
 
             // Keep status meaningful before city is loaded
-            var gm = GameManager.instance;
-            if (!m_IsCityLoaded || gm == null || !gm.gameMode.IsGame())
+            GameManager? gm = GameManager.instance;
+            if (!m_IsCityLoaded || gm == null || gm.gameMode != GameMode.Game)
             {
                 setting.SetStatus("No city loaded", countedNow: false);
                 Enabled = false;
@@ -151,7 +150,7 @@ namespace AbandonedBuildingBoss
                 if (!m_LoggedNoCityOnce)
                 {
                     m_LoggedNoCityOnce = true;
-                    Mod.Log.Info("[ABB] OnUpdate bail: no city loaded or not in Game mode → disabling system until next trigger.");
+                    Mod.s_Log.Info("[ABB] OnUpdate bail: not in Game → disabling system until next trigger.");
                 }
 #endif
                 return;
@@ -162,19 +161,23 @@ namespace AbandonedBuildingBoss
             {
                 m_DoAutoCountOnce = false;
 #if DEBUG
-                Mod.Log.Info("[ABB] First pass on city enter → counting.");
+                Mod.s_Log.Info("[ABB] First pass on city enter → counting.");
 #endif
                 DoCount(setting, countedNow: true);
             }
 
-            // Prepare icon buffer and abandoned icon handle if available
-            IconCommandBuffer? icb = null;
-            Entity abandonedIcon = Entity.Null;
-            if (m_IconSystem != null && !m_BuildConfigQuery.IsEmptyIgnoreFilter)
+            // Prepare notification buffer + config (once per tick).
+            if (m_IconCommandSystem == null)
             {
-                icb = m_IconSystem.CreateCommandBuffer();
-                var cfg = m_BuildConfigQuery.GetSingleton<BuildingConfigurationData>();
-                abandonedIcon = cfg.m_AbandonedNotification;
+                m_IconCommandSystem = World.GetOrCreateSystemManaged<IconCommandSystem>();
+            }
+            IconCommandBuffer iconCmd = m_IconCommandSystem.CreateCommandBuffer();
+
+            bool haveCfg = !m_BuildConfigQuery.IsEmptyIgnoreFilter;
+            BuildingConfigurationData cfg = default;
+            if (haveCfg)
+            {
+                cfg = m_BuildConfigQuery.GetSingleton<BuildingConfigurationData>();
             }
 
             // ---- Work passes (allocation-free; each capped per frame) ----
@@ -186,18 +189,37 @@ namespace AbandonedBuildingBoss
             }
             else if (setting.DisableCondemned)
             {
-                Step_DisableCondemned_NoCursor();
+                Step_DisableCondemned_NoCursor(iconCmd, cfg, haveCfg);
             }
 
             // Abandoned branch
             if (setting.RemoveAbandoned)
             {
-                Step_RemoveAbandoned_NoCursor();                 // demolish
+                Step_RemoveAbandoned_NoCursor();
             }
             else if (setting.DisableAbandonment)
             {
-                Step_DisableAbandoned_NoCursor(icb, abandonedIcon); // clear Abandoned, restore services
-                Step_RestoreDestroyed_NoCursor(icb, abandonedIcon); // clear Destroyed, restore services
+                Step_DisableAbandoned_NoCursor(iconCmd, cfg, haveCfg);
+            }
+
+            // Collapsed branch (separate control)
+            if (setting.RemoveCollapsed)
+            {
+                Step_RemoveCollapsed_NoCursor();
+            }
+            else if (setting.DisableCollapsed)
+            {
+                Step_DisableCollapsed_NoCursor(iconCmd, cfg, haveCfg);
+            }
+
+            // One-shot button: Restore Abandoned Now (requested in Options)
+            if (setting.TryConsumeRestoreAbandonedNowRequest())
+            {
+#if DEBUG
+                Mod.s_Log.Info("[ABB] RestoreAbandonedNow pressed → clearing Abandoned (one-shot).");
+#endif
+                Step_DisableAbandoned_NoCursor(iconCmd, cfg, haveCfg);
+                DoCount(setting, countedNow: true);
             }
         }
 
@@ -208,18 +230,20 @@ namespace AbandonedBuildingBoss
             int condemned = m_CondemnedQuery.CalculateEntityCount();
             int collapsed = m_DestroyedQuery.CalculateEntityCount();
 
-            var line = $"Abandoned: {abandoned} | Condemned: {condemned} | Collapsed: {collapsed}";
+            string line = $"Abandoned: {abandoned} | Condemned: {condemned} | Collapsed: {collapsed}";
 #if DEBUG
-            Mod.Log.Info($"[ABB] Count → A:{abandoned} C:{condemned} X:{collapsed} (countedNow={countedNow})");
+            Mod.s_Log.Info($"[ABB] Count → A:{abandoned} C:{condemned} X:{collapsed} (countedNow={countedNow})");
 #endif
             setting.SetStatus(line, countedNow);
+            setting.SetRefreshPrompt(false);   // clear “stale” hint after a real count
         }
 
         // ---- Steps (allocation-free; capped per frame; no cursors)
 
+        // Condemned → Deleted
         private void Step_RemoveCondemned_NoCursor()
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
             int processed = 0;
 
             foreach (var (_, e) in SystemAPI
@@ -237,13 +261,14 @@ namespace AbandonedBuildingBoss
 
 #if DEBUG
             if (processed > 0)
-                Mod.Log.Info($"[ABB] RemoveCondemned processed {processed}/{kBatchPerFrame} this tick.");
+                Mod.s_Log.Info($"[ABB] RemoveCondemned processed {processed}/{kBatchPerFrame} this tick.");
 #endif
         }
 
-        private void Step_DisableCondemned_NoCursor()
+        // Condemned → clear flag (keep building) + remove Condemned notification
+        private void Step_DisableCondemned_NoCursor(IconCommandBuffer iconCmd, in BuildingConfigurationData cfg, bool haveCfg)
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
             int processed = 0;
 
             foreach (var (_, e) in SystemAPI
@@ -255,19 +280,27 @@ namespace AbandonedBuildingBoss
                 if (em.HasComponent<Condemned>(e))
                     em.RemoveComponent<Condemned>(e);
 
+                if (!em.HasComponent<Updated>(e))
+                    em.AddComponent<Updated>(e);
+
+                // Remove Condemned notification if we have config.
+                if (haveCfg && cfg.m_CondemnedNotification != Entity.Null)
+                    iconCmd.Remove(e, cfg.m_CondemnedNotification);
+
                 if (++processed >= kBatchPerFrame)
                     break;
             }
 
 #if DEBUG
             if (processed > 0)
-                Mod.Log.Info($"[ABB] DisableCondemned cleared {processed}/{kBatchPerFrame} this tick.");
+                Mod.s_Log.Info($"[ABB] DisableCondemned cleared {processed}/{kBatchPerFrame} this tick.");
 #endif
         }
 
+        // Abandoned → Deleted (ECS will cascade cleanup)
         private void Step_RemoveAbandoned_NoCursor()
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
             int processed = 0;
 
             foreach (var (_, e) in SystemAPI
@@ -276,9 +309,14 @@ namespace AbandonedBuildingBoss
                 .WithNone<Deleted, Temp>()
                 .WithEntityAccess())
             {
-                if (kDeleteChildren)
-                    DeleteBuildingWithChildren(em, e);
-                else
+#if DEBUG
+                int subAreas = em.HasBuffer<Game.Areas.SubArea>(e) ? em.GetBuffer<Game.Areas.SubArea>(e).Length : 0;
+                int subNets = em.HasBuffer<Game.Net.SubNet>(e) ? em.GetBuffer<Game.Net.SubNet>(e).Length : 0;
+                int subLanes = em.HasBuffer<Game.Net.SubLane>(e) ? em.GetBuffer<Game.Net.SubLane>(e).Length : 0;
+                if ((subAreas + subNets + subLanes) > 0)
+                    Mod.s_Log.Info($"[ABB] Removing Abandoned: child buffers => Areas:{subAreas} Nets:{subNets} Lanes:{subLanes}");
+#endif
+                if (!em.HasComponent<Deleted>(e))
                     em.AddComponent<Deleted>(e);
 
                 if (++processed >= kBatchPerFrame)
@@ -287,13 +325,14 @@ namespace AbandonedBuildingBoss
 
 #if DEBUG
             if (processed > 0)
-                Mod.Log.Info($"[ABB] RemoveAbandoned processed {processed}/{kBatchPerFrame} this tick (deleteChildren={kDeleteChildren}).");
+                Mod.s_Log.Info($"[ABB] RemoveAbandoned processed {processed}/{kBatchPerFrame} this tick.");
 #endif
         }
 
-        private void Step_DisableAbandoned_NoCursor(IconCommandBuffer? icb, Entity abandonedIcon)
+        // Abandoned → clear + restore services + remove Abandoned notifications
+        private void Step_DisableAbandoned_NoCursor(IconCommandBuffer iconCmd, in BuildingConfigurationData cfg, bool haveCfg)
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
             int processed = 0;
 
             foreach (var (_, e) in SystemAPI
@@ -302,7 +341,7 @@ namespace AbandonedBuildingBoss
                 .WithNone<Deleted, Temp>()
                 .WithEntityAccess())
             {
-                RestoreBuilding(em, e, clearCondemned: false, clearDestroyed: false, icb, abandonedIcon);
+                RestoreBuilding(em, e, clearCondemned: false, clearDestroyed: false, iconCmd, cfg, haveCfg);
 
                 if (++processed >= kBatchPerFrame)
                     break;
@@ -310,13 +349,14 @@ namespace AbandonedBuildingBoss
 
 #if DEBUG
             if (processed > 0)
-                Mod.Log.Info($"[ABB] DisableAbandoned restored {processed}/{kBatchPerFrame} this tick.");
+                Mod.s_Log.Info($"[ABB] DisableAbandoned restored {processed}/{kBatchPerFrame} this tick.");
 #endif
         }
 
-        private void Step_RestoreDestroyed_NoCursor(IconCommandBuffer? icb, Entity abandonedIcon)
+        // Collapsed (Destroyed) → Deleted
+        private void Step_RemoveCollapsed_NoCursor()
         {
-            var em = EntityManager;
+            EntityManager em = EntityManager;
             int processed = 0;
 
             foreach (var (_, e) in SystemAPI
@@ -325,7 +365,8 @@ namespace AbandonedBuildingBoss
                 .WithNone<Deleted, Temp>()
                 .WithEntityAccess())
             {
-                RestoreBuilding(em, e, clearCondemned: false, clearDestroyed: true, icb, abandonedIcon);
+                if (!em.HasComponent<Deleted>(e))
+                    em.AddComponent<Deleted>(e);
 
                 if (++processed >= kBatchPerFrame)
                     break;
@@ -333,52 +374,57 @@ namespace AbandonedBuildingBoss
 
 #if DEBUG
             if (processed > 0)
-                Mod.Log.Info($"[ABB] RestoreDestroyed restored {processed}/{kBatchPerFrame} this tick.");
+                Mod.s_Log.Info($"[ABB] RemoveCollapsed processed {processed}/{kBatchPerFrame} this tick.");
 #endif
         }
 
-        // ---- Helpers ----
-
-        private static void DeleteBuildingWithChildren(EntityManager em, Entity building)
+        // Collapsed (Destroyed) → clear + cleanup requests/damage + remove AbandonedCollapsed notification
+        private void Step_DisableCollapsed_NoCursor(IconCommandBuffer iconCmd, in BuildingConfigurationData cfg, bool haveCfg)
         {
-            if (em.HasBuffer<Game.Areas.SubArea>(building))
+            EntityManager em = EntityManager;
+            int processed = 0;
+
+            foreach (var (_, e) in SystemAPI
+                .Query<RefRO<Building>>()
+                .WithAll<Destroyed>()
+                .WithNone<Deleted, Temp>()
+                .WithEntityAccess())
             {
-                var buf = em.GetBuffer<Game.Areas.SubArea>(building);
-                for (int j = 0; j < buf.Length; j++)
-                    em.AddComponent<Deleted>(buf[j].m_Area);
+                // Reuse core restoration (clears Destroyed, resets market/condition/services, nudges edges)
+                RestoreBuilding(em, e, clearCondemned: false, clearDestroyed: true, iconCmd, cfg, haveCfg);
+
+                // Extra cleanup for collapsed buildings
+                if (em.HasComponent<RescueTarget>(e))
+                    em.RemoveComponent<RescueTarget>(e);
+                if (em.HasComponent<Damaged>(e))
+                    em.RemoveComponent<Damaged>(e);
+
+                if (!em.HasComponent<Updated>(e))
+                    em.AddComponent<Updated>(e);
+
+                if (++processed >= kBatchPerFrame)
+                    break;
             }
 
-            if (em.HasBuffer<Game.Net.SubNet>(building))
-            {
-                var buf = em.GetBuffer<Game.Net.SubNet>(building);
-                for (int j = 0; j < buf.Length; j++)
-                    em.AddComponent<Deleted>(buf[j].m_SubNet);
-            }
-
-            if (em.HasBuffer<Game.Net.SubLane>(building))
-            {
-                var buf = em.GetBuffer<Game.Net.SubLane>(building);
-                for (int j = 0; j < buf.Length; j++)
-                    em.AddComponent<Deleted>(buf[j].m_SubLane);
-            }
-
-            em.AddComponent<Deleted>(building);
+#if DEBUG
+            if (processed > 0)
+                Mod.s_Log.Info($"[ABB] DisableCollapsed restored {processed}/{kBatchPerFrame} this tick.");
+#endif
         }
 
+        // ---- Restore helper ----
         private static void RestoreBuilding(
             EntityManager em,
             Entity building,
             bool clearCondemned,
             bool clearDestroyed,
-            IconCommandBuffer? icb,
-            Entity abandonedIcon)
+            IconCommandBuffer iconCmd,
+            in BuildingConfigurationData cfg,
+            bool haveCfg)
         {
+            // Flags
             if (em.HasComponent<Abandoned>(building))
-            {
                 em.RemoveComponent<Abandoned>(building);
-                if (icb.HasValue && abandonedIcon != Entity.Null)
-                    icb.Value.Remove(building, abandonedIcon);
-            }
 
             if (clearCondemned && em.HasComponent<Condemned>(building))
                 em.RemoveComponent<Condemned>(building);
@@ -386,14 +432,17 @@ namespace AbandonedBuildingBoss
             if (clearDestroyed && em.HasComponent<Destroyed>(building))
                 em.RemoveComponent<Destroyed>(building);
 
+            // Market
             if (em.HasComponent<PropertyOnMarket>(building))
                 em.RemoveComponent<PropertyOnMarket>(building);
             if (!em.HasComponent<PropertyToBeOnMarket>(building))
                 em.AddComponent<PropertyToBeOnMarket>(building);
 
+            // Condition
             if (em.HasComponent<BuildingCondition>(building))
                 em.SetComponentData(building, new BuildingCondition { m_Condition = 0 });
 
+            // Services (idempotent)
             if (!em.HasComponent<GarbageProducer>(building))
                 em.AddComponentData(building, default(GarbageProducer));
             if (!em.HasComponent<MailProducer>(building))
@@ -403,11 +452,28 @@ namespace AbandonedBuildingBoss
             if (!em.HasComponent<WaterConsumer>(building))
                 em.AddComponentData(building, default(WaterConsumer));
 
+            // UI/graph refresh
+            if (!em.HasComponent<Updated>(building))
+                em.AddComponent<Updated>(building);
+
             if (em.HasComponent<Building>(building))
             {
-                var b = em.GetComponentData<Building>(building);
+                Building b = em.GetComponentData<Building>(building);
                 if (b.m_RoadEdge != Entity.Null && !em.HasComponent<Updated>(b.m_RoadEdge))
                     em.AddComponent<Updated>(b.m_RoadEdge);
+            }
+
+            // Explicit notification removal (per PTG pattern)
+            if (haveCfg)
+            {
+                if (cfg.m_AbandonedNotification != Entity.Null)
+                    iconCmd.Remove(building, cfg.m_AbandonedNotification);
+
+                if (cfg.m_AbandonedCollapsedNotification != Entity.Null)
+                    iconCmd.Remove(building, cfg.m_AbandonedCollapsedNotification);
+
+                if (clearCondemned && cfg.m_CondemnedNotification != Entity.Null)
+                    iconCmd.Remove(building, cfg.m_CondemnedNotification);
             }
         }
     }
