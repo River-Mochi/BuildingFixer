@@ -1,23 +1,20 @@
 // Setting.cs
-// Purpose: Options UI — layout per spec; toggles + Status + Refresh; separate bottom “RESCUE” group.
-// Notes: SetRefreshPrompt() is UI-only; Apply() nudges system to run next tick (only when in-game).
+// Purpose: Options UI — ordered layout; toggles + status + refresh; separate RESCUE group; UI-only prompt helper.
 
 namespace AbandonedBuildingBoss
 {
     using System;                        // Exception handling
     using Colossal.IO.AssetDatabase;     // [FileLocation]
-    using Game;
     using Game.Modding;                  // IMod, ModSetting
-    using Game.SceneFlow;                // GameManager, GameMode
     using Game.Settings;                 // Settings UI attributes
+    using Game.SceneFlow;                // GameManager, GameMode
     using Unity.Entities;                // World.DefaultGameObjectInjectionWorld
     using UnityEngine;                   // Application.OpenURL
 
     [FileLocation("ModsSettings/AbandonedBuildingBoss/ABB")]
     [SettingsUITabOrder(kActionsTab, kAboutTab)]
     [SettingsUIGroupOrder(
-        kAutoRemovalGroup, kAutoRestoreGroup, kCondemnedGroup, kStatusGroup,
-        kRescueGroup, // always last
+        kAutoRemovalGroup, kAutoRestoreGroup, kCondemnedGroup, kStatusGroup, kRescueGroup,
         kAboutInfoGroup, kAboutLinksGroup)]
     [SettingsUIShowGroupName(kAutoRemovalGroup, kAutoRestoreGroup, kCondemnedGroup, kStatusGroup, kRescueGroup, kAboutInfoGroup)]
     public sealed class Setting : ModSetting
@@ -26,18 +23,18 @@ namespace AbandonedBuildingBoss
         public const string kActionsTab = "Actions";
         public const string kAboutTab = "About";
 
-        // ---- Action groups (by spec) ----
-        public const string kAutoRemovalGroup = "AUTO REMOVAL";                 // demolish
-        public const string kAutoRestoreGroup = "AUTO RESTORE — No Demolish";   // heal
+        // ---- Action groups (ordered) ----
+        public const string kAutoRemovalGroup = "AUTO REMOVAL";
+        public const string kAutoRestoreGroup = "AUTO RESTORE — No Demolish";
         public const string kCondemnedGroup = "CONDEMNED BUILDINGS";
-        public const string kStatusGroup = "STATUS";                       // refresh + text
-        public const string kRescueGroup = "RESCUE";                       // deep one-shot
+        public const string kStatusGroup = "STATUS";
+        public const string kRescueGroup = "RESCUE";
 
         // ---- About groups ----
         public const string kAboutInfoGroup = "Info";
         public const string kAboutLinksGroup = "Links";
 
-        // ---- External Links ----
+        // ---- External links ----
         private const string kUrlDiscord = "https://discord.gg/HTav7ARPs2";
         private const string kUrlParadox = "https://mods.paradoxplaza.com/uploaded?orderBy=desc&sortBy=popularity";
 
@@ -58,8 +55,7 @@ namespace AbandonedBuildingBoss
 
         public override void SetDefaults()
         {
-            // Defaults
-            RemoveAbandoned = true;     // quick win
+            RemoveAbandoned = true;  // quick win
             DisableAbandonment = false;
 
             RemoveCollapsed = false;
@@ -75,21 +71,24 @@ namespace AbandonedBuildingBoss
             m_ShowRefreshPrompt = false;
         }
 
-        // Apply nudges the system to re-run next tick so changes take effect immediately (in-game only).
+        // Apply nudges the system to re-run next tick so changes take effect immediately.
         public override void Apply()
         {
             base.Apply();
+
             if (m_SuppressReapply)
                 return;
 
-            bool inGame = GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game;
-            if (inGame)
+            // Only prompt/schedule when actually in a running game
+            var gm = Game.SceneFlow.GameManager.instance;
+            if (gm != null && gm.gameMode == Game.SceneFlow.GameMode.Game)
             {
                 SetRefreshPrompt(true);   // UI hint until next real count
-                m_RequestRefresh = true;  // ask for immediate recount/run
+                m_RequestRefresh = true;
 
                 World? world = World.DefaultGameObjectInjectionWorld;
-                world?.GetExistingSystemManaged<AbandonedBuildingBossSystem>()?.RequestRunNextTick();
+                var sys = world?.GetExistingSystemManaged<AbandonedBuildingBossSystem>();
+                sys?.RequestRunNextTick();
             }
         }
 
@@ -105,11 +104,11 @@ namespace AbandonedBuildingBoss
         // ---- AUTO RESTORE — No Demolish ----
         [SettingsUISection(kActionsTab, kAutoRestoreGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveAbandonedChecked))]
-        public bool DisableAbandonment { get; set; } = true; // heal Abandoned and keep alive
+        public bool DisableAbandonment { get; set; } = true; // heal Abandoned, remove icon, nudge
 
         [SettingsUISection(kActionsTab, kAutoRestoreGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveCollapsedChecked))]
-        public bool DisableCollapsed { get; set; } = false;  // heal Collapsed, clear rescue/damage
+        public bool DisableCollapsed { get; set; } = false;  // heal Collapsed + clear rescue/damage
 
         // ---- CONDEMNED BUILDINGS ----
         [SettingsUISection(kActionsTab, kCondemnedGroup)]
@@ -120,7 +119,7 @@ namespace AbandonedBuildingBoss
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableCondemnedChecked))]
         public bool RemoveCondemned { get; set; } = false;
 
-        // ---- STATUS (Refresh on top, Status text right below) ----
+        // ---- STATUS ----
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kStatusGroup)]
         public bool RefreshStatus
@@ -133,11 +132,10 @@ namespace AbandonedBuildingBoss
 
         [SettingsUISection(kActionsTab, kStatusGroup)]
         public string Status =>
-            m_ShowRefreshPrompt && (GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game)
-                ? kPressRefreshPrompt
-                : (string.IsNullOrEmpty(m_StatusText) ? "No city loaded" : m_StatusText);
+            m_ShowRefreshPrompt ? kPressRefreshPrompt :
+            (string.IsNullOrEmpty(m_StatusText) ? "No city loaded" : m_StatusText);
 
-        // ---- RESCUE (bottom) ----
+        // ---- RESCUE (deep) ----
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kRescueGroup)]
         public bool RescueAllNow
@@ -192,8 +190,10 @@ namespace AbandonedBuildingBoss
         // ---- Helpers (mutual exclusion) ----
         public bool IsRemoveAbandonedChecked() => RemoveAbandoned;
         public bool IsDisableAbandonmentChecked() => DisableAbandonment;
+
         public bool IsRemoveCollapsedChecked() => RemoveCollapsed;
         public bool IsDisableCollapsedChecked() => DisableCollapsed;
+
         public bool IsRemoveCondemnedChecked() => RemoveCondemned;
         public bool IsDisableCondemnedChecked() => DisableCondemned;
 
@@ -226,9 +226,7 @@ namespace AbandonedBuildingBoss
             }
             else
             {
-                // When not in a city, keep it simple; otherwise show stale hint
-                bool inGame = GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game;
-                m_StatusText = (!inGame || m_LastCountTime == DateTime.MinValue)
+                m_StatusText = (m_LastCountTime == DateTime.MinValue)
                     ? display
                     : $"{display}  (stale — Click Refresh)";
             }
@@ -243,8 +241,8 @@ namespace AbandonedBuildingBoss
         {
             if (m_ShowRefreshPrompt == show)
                 return;
-            m_ShowRefreshPrompt = show;
 
+            m_ShowRefreshPrompt = show;
             m_SuppressReapply = true;   // UI-only repaint
             base.Apply();
             m_SuppressReapply = false;

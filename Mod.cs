@@ -1,9 +1,9 @@
 // Mod.cs
-// Purpose: Entrypoint — registers settings/locales; schedules system; no auto-count; runs passes only in-game.
+// Purpose: Entrypoint — registers settings/locales; schedules system; seeds status; nudges system if already in-game.
 
 namespace AbandonedBuildingBoss
 {
-    using System.Reflection;            // AssemblyVersion number
+    using System.Reflection;            // AssemblyVersion
     using Colossal.IO.AssetDatabase;    // Saved Settings
     using Colossal.Logging;             // ILog
     using Game;                         // UpdateSystem
@@ -37,14 +37,13 @@ namespace AbandonedBuildingBoss
         {
             s_Log.Info($"{ModName} v{ModVersion} OnLoad");
 
-            Setting setting = new Setting(this);
+            var setting = new Setting(this);
             Settings = setting;
 
             // Locales first so UI strings render immediately
-            GameManager? gm = GameManager.instance;
-            var lm = gm?.localizationManager; // UI manager
-            if (lm != null)
-                lm.AddSource("en-US", new LocaleEN(setting));
+            var gm = GameManager.instance;
+            var lm = gm?.localizationManager;
+            lm?.AddSource("en-US", new LocaleEN(setting));
 
             // Load saved settings, then register Options UI
             AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
@@ -56,14 +55,12 @@ namespace AbandonedBuildingBoss
             // Register ECS system at GameSimulation cadence
             updateSystem.UpdateAt<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
 
-            // If already in-game when mod loads, enable ticking (no auto-count)
+            // If already in-game when mod loads, schedule a run (no auto-count)
             if (gm != null && gm.gameMode == GameMode.Game)
             {
-                World? world = World.DefaultGameObjectInjectionWorld;
-                world?.GetExistingSystemManaged<AbandonedBuildingBossSystem>()?.RequestRunNextTick();
-#if DEBUG
-                s_Log.Info("[ABB] Detected active city → enabled system (no auto-count)");
-#endif
+                var world = World.DefaultGameObjectInjectionWorld;
+                var sys = world?.GetExistingSystemManaged<AbandonedBuildingBossSystem>();
+                sys?.RequestRunNextTick();
             }
         }
 
