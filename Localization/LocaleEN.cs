@@ -1,11 +1,12 @@
 // LocaleEN.cs
-// Purpose: en-US labels/descriptions for ABB (phase 1).
+// Purpose: en-US strings (renamed “Restore … (and disable)” + RESCUE group).
 
 namespace AbandonedBuildingBoss
 {
-    using System.Collections.Generic; // IDictionarySource
+    using System.Collections.Generic;
+    using Colossal;
 
-    public sealed class LocaleEN : Colossal.IDictionarySource
+    public sealed class LocaleEN : IDictionarySource
     {
         private readonly Setting m_Setting;
         public LocaleEN(Setting setting)
@@ -14,10 +15,10 @@ namespace AbandonedBuildingBoss
         }
 
         public IEnumerable<KeyValuePair<string, string>> ReadEntries(
-            IList<Colossal.IDictionaryEntryError> errors,
+            IList<IDictionaryEntryError> errors,
             Dictionary<string, int> indexCounts)
         {
-            Dictionary<string, string> d = new Dictionary<string, string>
+            var d = new Dictionary<string, string>
             {
                 // Title
                 { m_Setting.GetSettingsLocaleID(), "Abandoned Building Boss [ABB]" },
@@ -26,7 +27,7 @@ namespace AbandonedBuildingBoss
                 { m_Setting.GetOptionTabLocaleID(Setting.kActionsTab), "Actions" },
                 { m_Setting.GetOptionTabLocaleID(Setting.kAboutTab),   "About"   },
 
-                // Groups (ordered)
+                // Groups
                 { m_Setting.GetOptionGroupLocaleID(Setting.kAutoRemovalGroup), "AUTO REMOVAL" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kAutoRestoreGroup), "AUTO RESTORE — No Demolish" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kCondemnedGroup),   "CONDEMNED BUILDINGS" },
@@ -37,31 +38,31 @@ namespace AbandonedBuildingBoss
 
                 // AUTO REMOVAL
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RemoveAbandoned)), "Auto Remove Abandoned" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RemoveAbandoned)),  "Automatically demolishes **Abandoned** buildings." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RemoveAbandoned)),  "Automatically demolishes **Abandoned** buildings and nudges nearby edges." },
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RemoveCollapsed)), "Auto Remove Collapsed" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RemoveCollapsed)),  "Automatically demolishes **Collapsed** buildings." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RemoveCollapsed)),  "Automatically demolishes **Collapsed** buildings, including icon-only cases." },
 
                 // AUTO RESTORE — No Demolish
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableAbandonment)), "Disable Abandonment" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableAbandonment)),  "Clears Abandoned and restores services so buildings remain." },
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableCollapsed)), "Disable Collapsed" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableCollapsed)),  "Clears Collapsed, removes rescue/damage leftovers, and refreshes the edge." },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableAbandonment)), "Restore Abandoned (and disable)" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableAbandonment)),  "Clears Abandoned, restores services, removes icon, and keeps buildings alive." },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableCollapsed)), "Restore Collapsed (and disable)" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableCollapsed)),  "Clears Collapsed (or collapsed icon-only), removes Rescue/Damage + icons, and refreshes roads." },
 
                 // CONDEMNED
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableCondemned)), "Disable Condemned" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableCondemned)),  "Prevents removal by clearing the Condemned flag so zoning can adjust." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableCondemned)),  "Clears Condemned so zoning can adjust; removes its icon." },
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RemoveCondemned)), "Auto Remove Condemned" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.RemoveCondemned)),  "Automatically demolishes **Condemned** buildings." },
 
                 // STATUS
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RefreshStatus)), "Refresh Status" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RefreshStatus)),  "Update counts for the loaded city; shows “No city loaded” when applicable." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RefreshStatus)), "Recount Abandoned / Condemned / Collapsed for the loaded city." },
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.Status)), "Status" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.Status)),  "Counts + last updated; may display “stale — Click Refresh” until updated." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.Status)),  "Counts + last updated; may show “stale — Click Refresh” until updated." },
 
                 // RESCUE
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RescueAllNow)), "RESCUE ALL (deep restore)" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RescueAllNow)),  "Deep cleanup: heal Abandoned/Collapsed, clear rescue/damage, scrub icons, and refresh roads." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.RescueAllNow)),  "Deep clean legacy saves: heal Abandoned/Collapsed, clear Rescue/Damage, scrub icons, and refresh roads." },
 
                 // About
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.ModName)),    "Mod name" },
