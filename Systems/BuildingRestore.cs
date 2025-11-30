@@ -1,4 +1,4 @@
-// BuildingRestore.cs
+// Systems/BuildingRestore.cs
 // Purpose: Shared restore helpers — clear flags, scrub icons, nudge building + road.
 
 namespace BuildingFixer

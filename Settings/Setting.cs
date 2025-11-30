@@ -1,5 +1,5 @@
-// Setting.cs
-// Purpose: Options UI — Actions | RESCUE | About; status + requests; Recommended button; Empty-buildings bonus.
+// Settings/Setting.cs
+// Purpose: Options UI — Actions | About; status + requests; Recommended button.
 
 namespace BuildingFixer
 {
@@ -13,14 +13,13 @@ namespace BuildingFixer
     using UnityEngine;
 
     [FileLocation("ModsSettings/BuildingFixer/BuildingFixer")]
-    [SettingsUITabOrder(kActionsTab, kRescueTab, kAboutTab)]
+    [SettingsUITabOrder(kActionsTab, kAboutTab)]
     [SettingsUIGroupOrder(
         kRecommendedGroup,
         kAutoRemovalGroup,
         kAutoRestoreGroup,
         kCondemnedGroup,
-        kRescueNowGroup,
-        kEmptyBuildingsGroup,
+        kStatusGroup,
         kAboutInfoGroup,
         kAboutLinksGroup)]
     [SettingsUIShowGroupName(
@@ -28,14 +27,12 @@ namespace BuildingFixer
         kAutoRemovalGroup,
         kAutoRestoreGroup,
         kCondemnedGroup,
-        kRescueNowGroup,
-        kEmptyBuildingsGroup,
+        kStatusGroup,
         kAboutLinksGroup)]
     public sealed class Setting : ModSetting
     {
         // Tabs
         public const string kActionsTab = "Actions";
-        public const string kRescueTab = "RESCUE";
         public const string kAboutTab = "About";
 
         // Groups (Actions)
@@ -43,10 +40,7 @@ namespace BuildingFixer
         public const string kAutoRemovalGroup = "AUTO REMOVAL";
         public const string kAutoRestoreGroup = "AUTO RESTORE — No Demolish";
         public const string kCondemnedGroup = "CONDEMNED BUILDINGS";
-
-        // Groups (RESCUE)
-        public const string kRescueNowGroup = "RESCUE NOW";
-        public const string kEmptyBuildingsGroup = "EMPTY BUILDINGS";
+        public const string kStatusGroup = "STATUS";
 
         // Groups (About)
         public const string kAboutInfoGroup = "Info";
@@ -61,15 +55,15 @@ namespace BuildingFixer
         private DateTime m_LastCountTime = DateTime.MinValue;
 
         private bool m_RequestRefresh;
-        private bool m_RequestRescueAllNow;
-        private bool m_RequestCleanupEmptyNow;
 
         private bool m_ShowRefreshPrompt;
         private const string kPressRefreshPrompt = "Click Refresh Status to update";
 
         private bool m_SuppressReapply;
 
-        public Setting(IMod mod) : base(mod) { }
+        public Setting(IMod mod) : base(mod)
+        {
+        }
 
         public override void SetDefaults()
         {
@@ -83,15 +77,9 @@ namespace BuildingFixer
             DisableCondemned = false;
             RemoveCondemned = false;
 
-            // Bonus (Empty)
-            CleanCommercialEmpty = true;
-            CleanIndustrialEmpty = false;
-
             m_StatusText = "No city loaded";
             m_LastCountTime = DateTime.MinValue;
             m_RequestRefresh = false;
-            m_RequestRescueAllNow = false;
-            m_RequestCleanupEmptyNow = false;
             m_ShowRefreshPrompt = false;
         }
 
@@ -193,35 +181,9 @@ namespace BuildingFixer
             get; set;
         }
 
-        // ===== RESCUE tab =====
-
-        // Deep rescue button
+        // ---- STATUS ----
         [SettingsUIButton]
-        [SettingsUISection(kRescueTab, kRescueNowGroup)]
-        public bool RescueAllNow
-        {
-            set
-            {
-                if (value)
-                    m_RequestRescueAllNow = true;
-            }
-        }
-
-        // Empty-buildings toggles + actions
-        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
-        public bool CleanCommercialEmpty
-        {
-            get; set;
-        }
-
-        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
-        public bool CleanIndustrialEmpty
-        {
-            get; set;
-        }
-
-        [SettingsUIButton]
-        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
+        [SettingsUISection(kActionsTab, kStatusGroup)]
         public bool RefreshStatus
         {
             set
@@ -231,21 +193,10 @@ namespace BuildingFixer
             }
         }
 
-        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
+        [SettingsUISection(kActionsTab, kStatusGroup)]
         public string Status =>
             m_ShowRefreshPrompt ? kPressRefreshPrompt :
             (string.IsNullOrEmpty(m_StatusText) ? "No city loaded" : m_StatusText);
-
-        [SettingsUIButton]
-        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
-        public bool CleanupEmptyNow
-        {
-            set
-            {
-                if (value)
-                    m_RequestCleanupEmptyNow = true;
-            }
-        }
 
         // ===== About =====
 
@@ -285,7 +236,10 @@ namespace BuildingFixer
             {
                 Application.OpenURL(url);
             }
-            catch (Exception ex) { Mod.s_Log.Warn($"Open URL failed: {ex.Message}"); }
+            catch (Exception ex)
+            {
+                Mod.s_Log.Warn($"Open URL failed: {ex.Message}");
+            }
         }
 
         // Mutual exclusion helpers
@@ -302,22 +256,6 @@ namespace BuildingFixer
             if (!m_RequestRefresh)
                 return false;
             m_RequestRefresh = false;
-            return true;
-        }
-
-        public bool TryConsumeRescueAllNowRequest()
-        {
-            if (!m_RequestRescueAllNow)
-                return false;
-            m_RequestRescueAllNow = false;
-            return true;
-        }
-
-        public bool TryConsumeCleanupEmptyNowRequest()
-        {
-            if (!m_RequestCleanupEmptyNow)
-                return false;
-            m_RequestCleanupEmptyNow = false;
             return true;
         }
 

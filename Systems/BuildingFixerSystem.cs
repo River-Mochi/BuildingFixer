@@ -1,6 +1,5 @@
-// BuildingFixerSystem.cs
-// Purpose: BF runtime — dependable cleanup/restore + deep “RESCUE ALL” + empty-zone cleanup.
-// Notes: Pure SystemAPI queries; icon scrub via IconElement buffer; counts after real work.
+// Systems/BuildingFixerSystem.cs 
+// Purpose: BF runtime — auto cleanup/restore of Abandoned / Condemned / Collapsed + status counting.
 
 namespace BuildingFixer
 {
@@ -65,7 +64,9 @@ namespace BuildingFixer
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
 
             if (Mod.Settings != null && GameManager.instance != null && GameManager.instance.gameMode == GameMode.MainMenu)
+            {
                 Mod.Settings.SetStatus("No city loaded", countedNow: false);
+            }
 
             Enabled = false;
 #if DEBUG
@@ -82,7 +83,9 @@ namespace BuildingFixer
             Enabled = (mode == GameMode.Game);
 
             if (Mod.Settings != null && !m_IsCityLoaded)
+            {
                 Mod.Settings.SetStatus("No city loaded", countedNow: false);
+            }
         }
 
         protected override void OnGameLoadingComplete(Colossal.Serialization.Entities.Purpose purpose, GameMode mode)
@@ -91,7 +94,9 @@ namespace BuildingFixer
             m_IsCityLoaded = (mode == GameMode.Game);
             m_DoAutoCountOnce = m_IsCityLoaded;
             if (m_IsCityLoaded)
+            {
                 Enabled = true;
+            }
 
 #if DEBUG
             Mod.s_Log.Info($"[BF] OnGameLoadingComplete → loaded={m_IsCityLoaded}, firstPass={m_DoAutoCountOnce}");
@@ -141,9 +146,13 @@ namespace BuildingFixer
 
             // CONDEMNED
             if (setting.RemoveCondemned)
+            {
                 didWork |= Step_RemoveCondemned_NoCursor() > 0;
+            }
             else if (setting.DisableCondemned)
+            {
                 didWork |= Step_DisableCondemned_NoCursor() > 0;
+            }
 
             // ABANDONED
             if (setting.RemoveAbandoned)
@@ -168,29 +177,10 @@ namespace BuildingFixer
                 didWork |= Step_Restore_CollapseIconOnly_NoCursor() > 0;
             }
 
-            // Empty-zone cleanup (bonus)
-            if (setting.TryConsumeCleanupEmptyNowRequest())
-            {
-                int n = Step_RemoveEmptyZoned_NoCursor(setting.CleanCommercialEmpty, setting.CleanIndustrialEmpty);
-#if DEBUG
-                Mod.s_Log.Info($"[BF] CleanupEmpty → removed {n} empty buildings (C:{setting.CleanCommercialEmpty} I:{setting.CleanIndustrialEmpty})");
-#endif
-                if (n > 0)
-                    didWork = true;
-            }
-
-            // Deep rescue
-            if (setting.TryConsumeRescueAllNowRequest())
-            {
-#if DEBUG
-                Mod.s_Log.Info("[BF] RESCUE ALL (deep) pressed → full city sweep");
-#endif
-                Step_RescueAll_NoCursorDeep();
-                didWork = true;
-            }
-
             if (didWork)
+            {
                 DoCount(setting, countedNow: true);
+            }
         }
 
         private void DoCount(Setting setting, bool countedNow)
@@ -218,14 +208,19 @@ namespace BuildingFixer
             {
                 Building b = bRef.ValueRO;
                 if (b.m_RoadEdge != Entity.Null && !em.HasComponent<Updated>(b.m_RoadEdge))
+                {
                     em.AddComponent<Updated>(b.m_RoadEdge);
+                }
 
                 if (!em.HasComponent<Deleted>(e))
+                {
                     em.AddComponent<Deleted>(e);
+                }
 
                 if (++processed >= kBatchPerFrame)
                     break;
             }
+
             return processed;
         }
 
@@ -240,7 +235,9 @@ namespace BuildingFixer
                      .WithNone<Deleted, Temp>()
                      .WithEntityAccess())
             {
-                BuildingRestore.RestoreCore(em, e,
+                BuildingRestore.RestoreCore(
+                    em,
+                    e,
                     clearAbandoned: true,
                     clearCondemned: false,
                     clearDestroyed: false);
@@ -248,6 +245,7 @@ namespace BuildingFixer
                 if (++processed >= kBatchPerFrame)
                     break;
             }
+
             return processed;
         }
 
@@ -269,6 +267,7 @@ namespace BuildingFixer
                         break;
                 }
             }
+
             return processed;
         }
 
@@ -285,14 +284,19 @@ namespace BuildingFixer
             {
                 Building b = bRef.ValueRO;
                 if (b.m_RoadEdge != Entity.Null && !em.HasComponent<Updated>(b.m_RoadEdge))
+                {
                     em.AddComponent<Updated>(b.m_RoadEdge);
+                }
 
                 if (!em.HasComponent<Deleted>(e))
+                {
                     em.AddComponent<Deleted>(e);
+                }
 
                 if (++processed >= kBatchPerFrame)
                     break;
             }
+
             return processed;
         }
 
@@ -314,6 +318,7 @@ namespace BuildingFixer
                         break;
                 }
             }
+
             return processed;
         }
 
@@ -328,7 +333,9 @@ namespace BuildingFixer
                      .WithNone<Deleted, Temp>()
                      .WithEntityAccess())
             {
-                BuildingRestore.RestoreCore(em, e,
+                BuildingRestore.RestoreCore(
+                    em,
+                    e,
                     clearAbandoned: false,
                     clearCondemned: false,
                     clearDestroyed: true);
@@ -336,6 +343,7 @@ namespace BuildingFixer
                 if (++processed >= kBatchPerFrame)
                     break;
             }
+
             return processed;
         }
 
@@ -357,14 +365,19 @@ namespace BuildingFixer
             {
                 Building b = bRef.ValueRO;
                 if (b.m_RoadEdge != Entity.Null && !em.HasComponent<Updated>(b.m_RoadEdge))
+                {
                     em.AddComponent<Updated>(b.m_RoadEdge);
+                }
 
                 if (!em.HasComponent<Deleted>(e))
+                {
                     em.AddComponent<Deleted>(e);
+                }
 
                 if (++processed >= kBatchPerFrame)
                     break;
             }
+
             return processed;
         }
 
@@ -379,7 +392,9 @@ namespace BuildingFixer
                      .WithNone<Deleted, Temp>()
                      .WithEntityAccess())
             {
-                BuildingRestore.RestoreCore(em, e,
+                BuildingRestore.RestoreCore(
+                    em,
+                    e,
                     clearAbandoned: false,
                     clearCondemned: true,
                     clearDestroyed: false);
@@ -387,116 +402,8 @@ namespace BuildingFixer
                 if (++processed >= kBatchPerFrame)
                     break;
             }
-            return processed;
-        }
-
-        private void Step_RescueAll_NoCursorDeep()
-        {
-            EntityManager em = EntityManager;
-            int processed = 0;
-
-            foreach ((RefRO<Building> _, Entity e) in SystemAPI
-                     .Query<RefRO<Building>>()
-                     .WithNone<Deleted, Temp>()
-                     .WithEntityAccess())
-            {
-                BuildingRestore.RestoreCore(em, e,
-                    clearAbandoned: true,
-                    clearCondemned: true,
-                    clearDestroyed: true);
-
-                BuildingRestore.ScrubIconElements(em, e);
-
-                if (++processed >= kBatchPerFrame)
-                    break;
-            }
-        }
-
-        // Remove empty Commercial/Industrial (heuristic: no company renters, not on market)
-        private int Step_RemoveEmptyZoned_NoCursor(bool doCommercial, bool doIndustrial)
-        {
-            if (!doCommercial && !doIndustrial)
-                return 0;
-
-            EntityManager em = EntityManager;
-            int processed = 0;
-
-            // Commercial
-            if (doCommercial)
-            {
-                foreach ((RefRO<Building> bRef, RefRO<PrefabRef> _, Entity e) in SystemAPI
-                         .Query<RefRO<Building>, RefRO<PrefabRef>>()
-                         .WithAll<CommercialProperty>()
-                         .WithNone<Deleted, Temp, Destroyed>()
-                         .WithEntityAccess())
-                {
-                    if (!IsEmptyZoned(em, e))
-                        continue;
-
-                    Building b = bRef.ValueRO;
-                    if (b.m_RoadEdge != Entity.Null && !em.HasComponent<Updated>(b.m_RoadEdge))
-                        em.AddComponent<Updated>(b.m_RoadEdge);
-
-                    if (!em.HasComponent<Deleted>(e))
-                        em.AddComponent<Deleted>(e);
-
-                    if (++processed >= kBatchPerFrame)
-                        return processed;
-                }
-            }
-
-            // Industrial
-            if (doIndustrial)
-            {
-                foreach ((RefRO<Building> bRef, RefRO<PrefabRef> _, Entity e) in SystemAPI
-                         .Query<RefRO<Building>, RefRO<PrefabRef>>()
-                         .WithAll<IndustrialProperty>()
-                         .WithNone<Deleted, Temp, Destroyed>()
-                         .WithEntityAccess())
-                {
-                    if (!IsEmptyZoned(em, e))
-                        continue;
-
-                    Building b = bRef.ValueRO;
-                    if (b.m_RoadEdge != Entity.Null && !em.HasComponent<Updated>(b.m_RoadEdge))
-                        em.AddComponent<Updated>(b.m_RoadEdge);
-
-                    if (!em.HasComponent<Deleted>(e))
-                        em.AddComponent<Deleted>(e);
-
-                    if (++processed >= kBatchPerFrame)
-                        return processed;
-                }
-            }
 
             return processed;
-        }
-
-        /// <summary>“Empty” = no company tenants AND not currently on market.</summary>
-        private static bool IsEmptyZoned(EntityManager em, Entity building)
-        {
-            // If listed/pending on market, it's not a stuck empty
-            if (em.HasComponent<PropertyOnMarket>(building))
-                return false;
-
-            // No renter buffer at all → empty
-            if (!em.HasBuffer<Renter>(building))
-                return true;
-
-            var renters = em.GetBuffer<Renter>(building);
-            if (renters.Length == 0)
-                return true;
-
-            // Any renter with CompanyData → not empty
-            for (int i = 0; i < renters.Length; i++)
-            {
-                var renter = renters[i].m_Renter;
-                if (em.HasComponent<Game.Companies.CompanyData>(renter))
-                    return false;
-            }
-
-            // Renters exist but none are companies → treat as empty (C/I)
-            return true;
         }
     }
 }
