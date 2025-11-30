@@ -48,7 +48,8 @@ namespace BuildingFixer
 
         // Links
         private const string kUrlDiscord = "https://discord.gg/HTav7ARPs2";
-        private const string kUrlParadox = "https://mods.paradoxplaza.com/uploaded?orderBy=desc&sortBy=popularity";
+        private const string kUrlParadox =
+            "https://mods.paradoxplaza.com/authors/kimosabe1/cities_skylines_2?games=cities_skylines_2&orderBy=desc&sortBy=best&time=alltime";
 
         // Backing
         private string m_StatusText = "No city loaded";
