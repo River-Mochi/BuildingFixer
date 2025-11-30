@@ -1,7 +1,7 @@
 // LocaleEN.cs
-// Purpose: en-US strings for Abandoned Building Boss [ABB].
+// Purpose: en-US strings for Building Fixer [BF].namespace BuildingFixer
 
-namespace AbandonedBuildingBoss
+namespace BuildingFixer
 {
     using System.Collections.Generic;
     using Colossal;
@@ -21,8 +21,8 @@ namespace AbandonedBuildingBoss
         {
             var d = new Dictionary<string, string>
             {
-                // Settings root title
-                { m_Setting.GetSettingsLocaleID(), "Abandoned Building Boss [ABB]" },
+                // Options title (single source of truth from Mod.cs)
+                { m_Setting.GetSettingsLocaleID(), Mod.ModName + " " + Mod.ModTag },
 
                 // Tabs
                 { m_Setting.GetOptionTabLocaleID(Setting.kActionsTab), "Actions" },
@@ -39,13 +39,13 @@ namespace AbandonedBuildingBoss
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AutoDemolishAbandoned)), "Auto demolish abandoned" },
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.AutoDemolishAbandoned)),
-                    "While enabled, ABB will automatically bulldoze abandoned buildings."
+                    "While enabled, BF will automatically bulldoze abandoned buildings."
                 },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.AutoDemolishCondemned)), "Auto demolish condemned" },
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.AutoDemolishCondemned)),
-                    "While enabled, ABB will automatically bulldoze condemned buildings."
+                    "While enabled, BF will automatically bulldoze condemned buildings."
                 },
 
                 // Buttons – remodel

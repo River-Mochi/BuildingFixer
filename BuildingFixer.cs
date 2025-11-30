@@ -1,8 +1,8 @@
-// AbandonedBuildingBossSystem.cs
-// Purpose: runtime ECS logic for ABB – counts, auto-demolish, and remodel
+// BuildingFixerSystem.cs
+// Purpose: runtime ECS logic for BF – counts, auto-demolish, and remodel
 //          abandoned / condemned buildings, and also counts collapsed ones.
 
-namespace AbandonedBuildingBoss
+namespace BuildingFixer
 {
     using Game;
     using Game.Areas;
@@ -14,14 +14,14 @@ namespace AbandonedBuildingBoss
     using Unity.Entities;
     using Purpose = Colossal.Serialization.Entities.Purpose;
 
-    public partial class AbandonedBuildingBossSystem : GameSystemBase
+    public partial class BuildingFixer : GameSystemBase
     {
         private const int kUpdateIntervalFrames = 16;
 
         private EntityQuery m_AbandonedQuery;
         private EntityQuery m_CondemnedQuery;
 
-        // “Collapsed” in ABB = Destroyed + Building (same as CollapsedBuildingSystem’s logic)
+        // “Collapsed” in BF = Destroyed + Building (same as CollapsedBuildingSystem’s logic)
         private EntityQuery m_CollapsedBuildingQuery;
 
         // GameMode-based "city loaded" flag
@@ -84,7 +84,7 @@ namespace AbandonedBuildingBoss
             m_PendingInitialCount = false;
 
 #if DEBUG
-            Mod.Log.Info("[ABB] AbandonedBuildingBossSystem created.");
+            Mod.Log.Info("[BF] BuildingFixerSystem created.");
 #endif
         }
 
@@ -98,7 +98,7 @@ namespace AbandonedBuildingBoss
             m_PendingInitialCount = false;
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] OnGamePreload: purpose={purpose}, mode={mode}, enabled={Enabled}");
+            Mod.Log.Info($"[BF] OnGamePreload: purpose={purpose}, mode={mode}, enabled={Enabled}");
 #endif
         }
 
@@ -111,7 +111,7 @@ namespace AbandonedBuildingBoss
             m_PendingInitialCount = m_IsCityLoaded;
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] OnGameLoadingComplete: purpose={purpose}, mode={mode}, isCityLoaded={m_IsCityLoaded}");
+            Mod.Log.Info($"[BF] OnGameLoadingComplete: purpose={purpose}, mode={mode}, isCityLoaded={m_IsCityLoaded}");
 #endif
         }
 
@@ -216,7 +216,7 @@ namespace AbandonedBuildingBoss
             setting.SetStatus(status);
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] DoCount -> {status}");
+            Mod.Log.Info($"[BF] DoCount -> {status}");
 #endif
         }
 
@@ -239,7 +239,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info("[ABB] DoRemodelAbandoned -> restoring abandoned buildings without demolish.");
+            Mod.Log.Info("[BF] DoRemodelAbandoned -> restoring abandoned buildings without demolish.");
 #endif
 
             ClearAbandonedWithoutBulldoze(alsoCondemned: false);
@@ -261,7 +261,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info("[ABB] DoRemodelCondemned -> restoring condemned buildings without demolish.");
+            Mod.Log.Info("[BF] DoRemodelCondemned -> restoring condemned buildings without demolish.");
 #endif
 
             ClearCondemnedWithoutBulldoze();
@@ -339,7 +339,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] AutoDemolishAbandoned -> demolished {demolishedAbandoned} abandoned, {demolishedCondemned} condemned (includeCondemned={includeCondemned}).");
+            Mod.Log.Info($"[BF] AutoDemolishAbandoned -> demolished {demolishedAbandoned} abandoned, {demolishedCondemned} condemned (includeCondemned={includeCondemned}).");
 #endif
         }
 
@@ -360,7 +360,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] AutoDemolishCondemnedOnly -> demolished {demolished} condemned buildings.");
+            Mod.Log.Info($"[BF] AutoDemolishCondemnedOnly -> demolished {demolished} condemned buildings.");
 #endif
         }
 
@@ -400,7 +400,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] ClearAbandonedWithoutBulldoze -> restored {restoredAbandoned} abandoned, {restoredCondemned} condemned (alsoCondemned={alsoCondemned}).");
+            Mod.Log.Info($"[BF] ClearAbandonedWithoutBulldoze -> restored {restoredAbandoned} abandoned, {restoredCondemned} condemned (alsoCondemned={alsoCondemned}).");
 #endif
         }
 
@@ -420,7 +420,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] ClearCondemnedWithoutBulldoze -> restored {restoredCondemned} condemned buildings.");
+            Mod.Log.Info($"[BF] ClearCondemnedWithoutBulldoze -> restored {restoredCondemned} condemned buildings.");
 #endif
         }
 
@@ -477,7 +477,7 @@ namespace AbandonedBuildingBoss
             }
 
 #if DEBUG
-            Mod.Log.Info($"[ABB] RestoreBuilding -> {building.Index}:{building.Version} (alsoCondemned={alsoCondemned})");
+            Mod.Log.Info($"[BF] RestoreBuilding -> {building.Index}:{building.Version} (alsoCondemned={alsoCondemned})");
 #endif
         }
     }

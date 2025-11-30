@@ -1,7 +1,7 @@
 // Setting.cs
-// Purpose: Options UI for Abandoned Building Boss [ABB].
+// Purpose: Options UI for Building Fixer [BF].
 
-namespace AbandonedBuildingBoss
+namespace BuildingFixer
 {
     using System;
     using Colossal.IO.AssetDatabase; // [FileLocation]
@@ -9,7 +9,7 @@ namespace AbandonedBuildingBoss
     using Game.Settings;
     using UnityEngine;
 
-    [FileLocation("ModsSettings/ABB/AbandonedBuildingBoss")]
+    [FileLocation("ModsSettings/BuildingFixer/BuildingFixer")]
     [SettingsUITabOrder(kActionsTab, kAboutTab)]
     [SettingsUIGroupOrder(kActionsGroup, kButtonsGroup, kStatusGroup, kAboutInfoGroup, kAboutLinksGroup)]
     [SettingsUIShowGroupName(kStatusGroup, kAboutInfoGroup)]
@@ -118,7 +118,7 @@ namespace AbandonedBuildingBoss
             {
                 try
                 {
-                    Application.OpenURL("https://mods.paradoxplaza.com/authors/kimosabe1?orderBy=desc&sortBy=best&time=alltime");
+                    Application.OpenURL("https://mods.paradoxplaza.com/authors/kimosabe1/cities_skylines_2?games=cities_skylines_2&orderBy=desc&sortBy=best&time=alltime");
                 }
                 catch (Exception)
                 {

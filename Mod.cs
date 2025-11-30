@@ -1,8 +1,9 @@
 // Mod.cs
-// Purpose: entrypoint for Abandoned Building Boss [ABB]; registers settings, locales, and ECS system.
+// Purpose: entrypoint for Building Fixer [BF]; registers settings, locales, and ECS system.
 
-namespace AbandonedBuildingBoss
+namespace BuildingFixer
 {
+    using System.Reflection;
     using Colossal.IO.AssetDatabase;
     using Colossal.Logging;
     using Game;
@@ -11,11 +12,21 @@ namespace AbandonedBuildingBoss
 
     public sealed class Mod : IMod
     {
-        public const string ModName = "Abandoned Building Boss [ABB]";
-        public const string ModVersion = "0.5.0"; // bump as you like
+        // ---- PUBLIC CONSTANTS / METADATA ----
+        public const string ModName = "Building Fixer";
+        public const string ModId = "BuildingFixer";
+        public const string ModTag = "[BF]";
+
+        /// <summary>
+        /// Read Version from .csproj (3-part).
+        /// </summary>
+        public static readonly string ModVersion =
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+
+
 
         public static readonly ILog Log =
-            LogManager.GetLogger("AbandonedBuildingBoss")
+            LogManager.GetLogger("BuildingFixer")
 #if DEBUG
                       .SetShowsErrorsInUI(true);
 #else
@@ -38,7 +49,7 @@ namespace AbandonedBuildingBoss
             setting.RegisterInOptionsUI();
 
             // Load saved settings (or apply defaults)
-            AssetDatabase.global.LoadSettings("AbandonedBuildingBoss", setting, new Setting(this));
+            AssetDatabase.global.LoadSettings("BuildingFixer", setting, new Setting(this));
 
             // Locale
             var gm = GameManager.instance;
@@ -49,7 +60,7 @@ namespace AbandonedBuildingBoss
             }
 
             // Register ECS system to run in GameSimulation phase
-            updateSystem.UpdateAfter<AbandonedBuildingBossSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<BuildingFixer>(SystemUpdatePhase.GameSimulation);
 
             if (gm != null && gm.modManager.TryGetExecutableAsset(this, out var asset))
             {
