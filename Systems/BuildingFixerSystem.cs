@@ -11,9 +11,6 @@ namespace BuildingFixer
     using Game.SceneFlow;               // GameMode
     using Game.Tools;
     using Unity.Entities;               // Entity, RefRO<>
-#if DEBUG
-    using UnityEngine;                  // Debug logging context in editor
-#endif
 
     public sealed partial class BuildingFixerSystem : GameSystemBase
     {
