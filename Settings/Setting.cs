@@ -1,39 +1,54 @@
 // Setting.cs
-// Purpose: Options UI — layout + status; schedules runs; RESCUE ALL button.
-// Notes: Status group is now last; RESCUE is right above it.
+// Purpose: Options UI — Actions | RESCUE | About; status + requests; Recommended button; Empty-buildings bonus.
 
-namespace AbandonedBuildingBoss
+namespace BuildingFixer
 {
     using System;
-    using Colossal.IO.AssetDatabase;     // [FileLocation]
+    using Colossal.IO.AssetDatabase;
     using Game;
-    using Game.Modding;                  // IMod, ModSetting
-    using Game.SceneFlow;                // GameManager, GameMode
-    using Game.Settings;                 // Settings UI
-    using Unity.Entities;                // World.DefaultGameObjectInjectionWorld
-    using UnityEngine;                   // Application.OpenURL
+    using Game.Modding;
+    using Game.SceneFlow;
+    using Game.Settings;
+    using Unity.Entities;
+    using UnityEngine;
 
-    [FileLocation("ModsSettings/AbandonedBuildingBoss/ABB")]
-    [SettingsUITabOrder(kActionsTab, kAboutTab)]
-    // ↓↓↓ Group order changed: RESCUE before STATUS, so STATUS renders at the very bottom
+    [FileLocation("ModsSettings/BuildingFixer/BuildingFixer")]
+    [SettingsUITabOrder(kActionsTab, kRescueTab, kAboutTab)]
     [SettingsUIGroupOrder(
-        kAutoRemovalGroup, kAutoRestoreGroup, kCondemnedGroup, kRescueGroup, kStatusGroup,
-        kAboutInfoGroup, kAboutLinksGroup)]
-    [SettingsUIShowGroupName(kAutoRemovalGroup, kAutoRestoreGroup, kCondemnedGroup, kRescueGroup, kStatusGroup, kAboutInfoGroup)]
+        kRecommendedGroup,
+        kAutoRemovalGroup,
+        kAutoRestoreGroup,
+        kCondemnedGroup,
+        kRescueNowGroup,
+        kEmptyBuildingsGroup,
+        kAboutInfoGroup,
+        kAboutLinksGroup)]
+    [SettingsUIShowGroupName(
+        kRecommendedGroup,
+        kAutoRemovalGroup,
+        kAutoRestoreGroup,
+        kCondemnedGroup,
+        kRescueNowGroup,
+        kEmptyBuildingsGroup,
+        kAboutLinksGroup)]
     public sealed class Setting : ModSetting
     {
         // Tabs
         public const string kActionsTab = "Actions";
+        public const string kRescueTab = "RESCUE";
         public const string kAboutTab = "About";
 
-        // Action groups
+        // Groups (Actions)
+        public const string kRecommendedGroup = "RECOMMENDED";
         public const string kAutoRemovalGroup = "AUTO REMOVAL";
         public const string kAutoRestoreGroup = "AUTO RESTORE — No Demolish";
         public const string kCondemnedGroup = "CONDEMNED BUILDINGS";
-        public const string kRescueGroup = "RESCUE";
-        public const string kStatusGroup = "STATUS";     // last
 
-        // About
+        // Groups (RESCUE)
+        public const string kRescueNowGroup = "RESCUE NOW";
+        public const string kEmptyBuildingsGroup = "EMPTY BUILDINGS";
+
+        // Groups (About)
         public const string kAboutInfoGroup = "Info";
         public const string kAboutLinksGroup = "Links";
 
@@ -44,11 +59,13 @@ namespace AbandonedBuildingBoss
         // Backing
         private string m_StatusText = "No city loaded";
         private DateTime m_LastCountTime = DateTime.MinValue;
+
         private bool m_RequestRefresh;
         private bool m_RequestRescueAllNow;
+        private bool m_RequestCleanupEmptyNow;
 
         private bool m_ShowRefreshPrompt;
-        private const string kPressRefreshPrompt = "Click Refresh for latest counts";
+        private const string kPressRefreshPrompt = "Click Refresh Status to update";
 
         private bool m_SuppressReapply;
 
@@ -56,19 +73,25 @@ namespace AbandonedBuildingBoss
 
         public override void SetDefaults()
         {
-            RemoveAbandoned = true;   // quick win
-            DisableAbandonment = false;
-
+            // Core
+            RemoveAbandoned = true;
             RemoveCollapsed = false;
+
+            DisableAbandonment = false;
             DisableCollapsed = false;
 
             DisableCondemned = false;
             RemoveCondemned = false;
 
+            // Bonus (Empty)
+            CleanCommercialEmpty = true;
+            CleanIndustrialEmpty = false;
+
             m_StatusText = "No city loaded";
             m_LastCountTime = DateTime.MinValue;
             m_RequestRefresh = false;
             m_RequestRescueAllNow = false;
+            m_RequestCleanupEmptyNow = false;
             m_ShowRefreshPrompt = false;
         }
 
@@ -79,7 +102,6 @@ namespace AbandonedBuildingBoss
             if (m_SuppressReapply)
                 return;
 
-            // Don’t tease a refresh while not in-game
             bool inGame = GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game;
             if (!inGame)
             {
@@ -88,70 +110,145 @@ namespace AbandonedBuildingBoss
                 return;
             }
 
-            // In-game → schedule immediate recount
-            SetRefreshPrompt(true);     // hint until a real count runs
+            SetRefreshPrompt(true);
             m_RequestRefresh = true;
 
-            var world = World.DefaultGameObjectInjectionWorld;
-            var sys = world?.GetExistingSystemManaged<AbandonedBuildingBossSystem>();
-            sys?.RequestRunNextTick();
+            World world = World.DefaultGameObjectInjectionWorld;
+            world?.GetExistingSystemManaged<BuildingFixerSystem>()?.RequestRunNextTick();
+        }
+
+        // ===== Actions tab =====
+
+        // RECOMMENDED (one-click)
+        [SettingsUIButton]
+        [SettingsUISection(kActionsTab, kRecommendedGroup)]
+        public bool RecommendedNow
+        {
+            set
+            {
+                if (!value)
+                    return;
+
+                // Sensible defaults
+                RemoveAbandoned = true;
+                RemoveCollapsed = true;
+
+                DisableAbandonment = false;
+                DisableCollapsed = false;
+
+                DisableCondemned = true;
+                RemoveCondemned = false;
+
+                // Re-apply without scheduling more changes
+                m_SuppressReapply = true;
+                base.Apply();
+                m_SuppressReapply = false;
+
+                SetRefreshPrompt(true);
+            }
         }
 
         // ---- AUTO REMOVAL ----
         [SettingsUISection(kActionsTab, kAutoRemovalGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableAbandonmentChecked))]
-        public bool RemoveAbandoned { get; set; } = false;
+        public bool RemoveAbandoned
+        {
+            get; set;
+        }
 
         [SettingsUISection(kActionsTab, kAutoRemovalGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableCollapsedChecked))]
-        public bool RemoveCollapsed { get; set; } = false;
+        public bool RemoveCollapsed
+        {
+            get; set;
+        }
 
         // ---- AUTO RESTORE — No Demolish ----
         [SettingsUISection(kActionsTab, kAutoRestoreGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveAbandonedChecked))]
-        public bool DisableAbandonment { get; set; } = true;
+        public bool DisableAbandonment
+        {
+            get; set;
+        }
 
         [SettingsUISection(kActionsTab, kAutoRestoreGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveCollapsedChecked))]
-        public bool DisableCollapsed { get; set; } = false;
+        public bool DisableCollapsed
+        {
+            get; set;
+        }
 
         // ---- CONDEMNED ----
         [SettingsUISection(kActionsTab, kCondemnedGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveCondemnedChecked))]
-        public bool DisableCondemned { get; set; } = false;
+        public bool DisableCondemned
+        {
+            get; set;
+        }
 
         [SettingsUISection(kActionsTab, kCondemnedGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableCondemnedChecked))]
-        public bool RemoveCondemned { get; set; } = false;
+        public bool RemoveCondemned
+        {
+            get; set;
+        }
 
-        // ---- RESCUE (above Status) ----
+        // ===== RESCUE tab =====
+
+        // Deep rescue button
         [SettingsUIButton]
-        [SettingsUISection(kActionsTab, kRescueGroup)]
+        [SettingsUISection(kRescueTab, kRescueNowGroup)]
         public bool RescueAllNow
         {
             set
             {
-                m_RequestRescueAllNow = true;
+                if (value)
+                    m_RequestRescueAllNow = true;
             }
         }
 
-        // ---- STATUS (very bottom) ----
+        // Empty-buildings toggles + actions
+        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
+        public bool CleanCommercialEmpty
+        {
+            get; set;
+        }
+
+        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
+        public bool CleanIndustrialEmpty
+        {
+            get; set;
+        }
+
         [SettingsUIButton]
-        [SettingsUISection(kActionsTab, kStatusGroup)]
+        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
         public bool RefreshStatus
         {
             set
             {
-                m_RequestRefresh = true;
+                if (value)
+                    m_RequestRefresh = true;
             }
         }
 
-        [SettingsUISection(kActionsTab, kStatusGroup)]
+        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
         public string Status =>
             m_ShowRefreshPrompt ? kPressRefreshPrompt :
             (string.IsNullOrEmpty(m_StatusText) ? "No city loaded" : m_StatusText);
 
-        // About
+        [SettingsUIButton]
+        [SettingsUISection(kRescueTab, kEmptyBuildingsGroup)]
+        public bool CleanupEmptyNow
+        {
+            set
+            {
+                if (value)
+                    m_RequestCleanupEmptyNow = true;
+            }
+        }
+
+        // ===== About =====
+
         [SettingsUISection(kAboutTab, kAboutInfoGroup)]
         public string ModName => Mod.ModName;
 
@@ -194,10 +291,8 @@ namespace AbandonedBuildingBoss
         // Mutual exclusion helpers
         public bool IsRemoveAbandonedChecked() => RemoveAbandoned;
         public bool IsDisableAbandonmentChecked() => DisableAbandonment;
-
         public bool IsRemoveCollapsedChecked() => RemoveCollapsed;
         public bool IsDisableCollapsedChecked() => DisableCollapsed;
-
         public bool IsRemoveCondemnedChecked() => RemoveCondemned;
         public bool IsDisableCondemnedChecked() => DisableCondemned;
 
@@ -218,36 +313,44 @@ namespace AbandonedBuildingBoss
             return true;
         }
 
-        // Status text setter
+        public bool TryConsumeCleanupEmptyNowRequest()
+        {
+            if (!m_RequestCleanupEmptyNow)
+                return false;
+            m_RequestCleanupEmptyNow = false;
+            return true;
+        }
+
+        // Status setters
         public void SetStatus(string text, bool countedNow)
         {
-            string display = string.IsNullOrEmpty(text) ? "No city loaded" : text;
+            var display = string.IsNullOrEmpty(text) ? "No city loaded" : text;
 
             if (countedNow)
             {
                 m_LastCountTime = DateTime.Now;
                 m_StatusText = $"{display}  —  Last updated {m_LastCountTime:HH:mm}";
+                SetRefreshPrompt(false);
             }
             else
             {
                 m_StatusText = (m_LastCountTime == DateTime.MinValue)
                     ? display
-                    : $"{display}  (stale — Click Refresh)";
+                    : $"{display}  (stale — Click Refresh Status)";
             }
 
-            m_SuppressReapply = true;   // UI-only repaint
+            m_SuppressReapply = true;
             base.Apply();
             m_SuppressReapply = false;
         }
 
-        // UI-only prompt toggler
         public void SetRefreshPrompt(bool show)
         {
             if (m_ShowRefreshPrompt == show)
                 return;
             m_ShowRefreshPrompt = show;
 
-            m_SuppressReapply = true;   // UI-only repaint
+            m_SuppressReapply = true;
             base.Apply();
             m_SuppressReapply = false;
         }

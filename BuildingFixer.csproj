@@ -7,7 +7,7 @@
     <PublishConfigurationPath>Properties\PublishConfiguration.xml</PublishConfigurationPath>
 
     <!-- Assembly metadata -->
-    <RootNamespace>AbandonedBuildingBoss</RootNamespace>
+    <RootNamespace>BuildingFixer</RootNamespace>
 
   <!-- Single source of truth -->
 	  <Version>1.0.1</Version>
