@@ -48,6 +48,7 @@ namespace BuildingFixer
 
         // Links
         private const string kUrlDiscord = "https://discord.gg/HTav7ARPs2";
+
         private const string kUrlParadox =
             "https://mods.paradoxplaza.com/authors/kimosabe1/cities_skylines_2?games=cities_skylines_2&orderBy=desc&sortBy=best&time=alltime";
 
@@ -91,7 +92,9 @@ namespace BuildingFixer
             if (m_SuppressReapply)
                 return;
 
-            bool inGame = GameManager.instance != null && GameManager.instance.gameMode == GameMode.Game;
+            GameManager? gm = GameManager.instance;
+            bool inGame = gm != null && gm.gameMode == GameMode.Game;
+
             if (!inGame)
             {
                 SetStatus("No city loaded", countedNow: false);
@@ -99,11 +102,13 @@ namespace BuildingFixer
                 return;
             }
 
+            // Options changed in-game:
+            //  - Mark status as stale.
+            //  - Let the player press Refresh to actually recount.
             SetRefreshPrompt(true);
-            m_RequestRefresh = true;
 
-            World world = World.DefaultGameObjectInjectionWorld;
-            world?.GetExistingSystemManaged<BuildingFixerSystem>()?.RequestRunNextTick();
+            // Ensure the runtime system wakes up at least once.
+            WakeBuildingFixerSystemIfInGame();
         }
 
         // ===== Actions tab =====
@@ -128,7 +133,7 @@ namespace BuildingFixer
                 DisableCondemned = true;
                 RemoveCondemned = false;
 
-                // Re-apply without scheduling more changes
+                // Re-apply without scheduling more changes twice.
                 m_SuppressReapply = true;
                 base.Apply();
                 m_SuppressReapply = false;
@@ -190,7 +195,9 @@ namespace BuildingFixer
             set
             {
                 if (value)
+                {
                     m_RequestRefresh = true;
+                }
             }
         }
 
@@ -251,11 +258,34 @@ namespace BuildingFixer
         public bool IsRemoveCondemnedChecked() => RemoveCondemned;
         public bool IsDisableCondemnedChecked() => DisableCondemned;
 
+        // Wakes the BuildingFixerSystem once, but only when a city is loaded.
+        private static void WakeBuildingFixerSystemIfInGame()
+        {
+            GameManager? gm = GameManager.instance;
+            if (gm == null || gm.gameMode != GameMode.Game)
+            {
+                return;
+            }
+
+            World world = World.DefaultGameObjectInjectionWorld;
+            if (world == null || !world.IsCreated)
+            {
+                return;
+            }
+
+            BuildingFixerSystem? system =
+                world.GetExistingSystemManaged<BuildingFixerSystem>();
+
+            system?.RequestRunNextTick();
+        }
+
+
         // System handoff
         public bool TryConsumeRefreshRequest()
         {
             if (!m_RequestRefresh)
                 return false;
+
             m_RequestRefresh = false;
             return true;
         }
@@ -263,7 +293,7 @@ namespace BuildingFixer
         // Status setters
         public void SetStatus(string text, bool countedNow)
         {
-            var display = string.IsNullOrEmpty(text) ? "No city loaded" : text;
+            string display = string.IsNullOrEmpty(text) ? "No city loaded" : text;
 
             if (countedNow)
             {
@@ -287,6 +317,7 @@ namespace BuildingFixer
         {
             if (m_ShowRefreshPrompt == show)
                 return;
+
             m_ShowRefreshPrompt = show;
 
             m_SuppressReapply = true;
