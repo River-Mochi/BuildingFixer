@@ -1,5 +1,6 @@
 // LocaleEN.cs
-// Purpose: en-US strings (Actions | About). Includes Recommended + Status group.
+// Purpose: en-US strings (Actions | About).
+// Includes Recommended + Reset Defaults + Status group + "Restore existing Abandoned now" + Smart Access Nudge.
 
 namespace BuildingFixer
 {
@@ -35,11 +36,17 @@ namespace BuildingFixer
                 { m_Setting.GetOptionGroupLocaleID(Setting.kCondemnedGroup),   "CONDEMNED BUILDINGS" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kStatusGroup),      "STATUS" },
 
-                // RECOMMENDED button
+                // RECOMMENDED row
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RecommendedNow)), "RECOMMENDED (one-click)" },
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.RecommendedNow)),
                     "Enable suggested defaults:\n• Auto Remove Abandoned\n• Auto Remove Collapsed\n• Disable Condemned"
+                },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.ResetToGameDefaults)), "Reset to Game Defaults" },
+                {
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.ResetToGameDefaults)),
+                    "Turn all Building Fixer toggles OFF and go back to pure vanilla behaviour. Does not demolish or restore anything by itself."
                 },
 
                 // AUTO REMOVAL
@@ -58,12 +65,19 @@ namespace BuildingFixer
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableAbandonment)), "Disable Abandoned (no demolish)" },
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableAbandonment)),
-                    "Clears Abandoned, restores services/icons, keeps the building alive."
+                    "Prevents buildings from staying abandoned going forward (no demolish). For a one-time citywide cleanup, use \"Restore existing Abandoned now\". Turn this off if you want full disaster ruin visuals."
                 },
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DisableCollapsed)),   "Disable Collapsed (no demolish)" },
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.DisableCollapsed)),
                     "Clears Collapsed or collapsed-icon, removes Rescue/Damage + icons, refreshes roads."
+                },
+
+                // One-shot restore existing Abandoned
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.RestoreExistingAbandonedNow)), "Restore existing Abandoned now" },
+                {
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.RestoreExistingAbandonedNow)),
+                    "One-time fix for all currently abandoned buildings (including icon-only cases). Clears flags/icons, nudges, and refreshes visuals. Does not fix the underlying causes, so some may become abandoned again later."
                 },
 
                 // CONDEMNED
@@ -83,6 +97,18 @@ namespace BuildingFixer
                 {
                     m_Setting.GetOptionDescLocaleID(nameof(Setting.RefreshStatus)),
                     "Recount Abandoned / Condemned / Collapsed and update the status line."
+                },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.NudgeAndClearProblemIconsOnce)), "Nudge + Clear Problem Icons (once)" },
+                {
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.NudgeAndClearProblemIconsOnce)),
+                    "One-shot cleanup: clear building problem icons, gently refresh road / lot visuals, and remove orphaned floating icons."
+                },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.SmartAccessNudgeOnce)), "Smart Nudge: Ped & Car Access" },
+                {
+                    m_Setting.GetOptionDescLocaleID(nameof(Setting.SmartAccessNudgeOnce)),
+                    "One-shot fix for buildings with **No Pedestrian Access** or **No Car Access** icons even though they have a road. Nudges them slightly back from the road edge, clears those icons, and refreshes access."
                 },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.Status)), "Status" },

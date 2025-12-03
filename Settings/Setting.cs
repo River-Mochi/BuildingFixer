@@ -1,5 +1,5 @@
-// Settings/Setting.cs
-// Purpose: Options UI — Actions | About; status + requests; Recommended button.
+// Setting.cs
+// Purpose: Options UI — Actions | About; status + requests; Recommended + Reset Defaults + Restore Abandoned + Smart Access Nudge buttons.
 
 namespace BuildingFixer
 {
@@ -57,13 +57,17 @@ namespace BuildingFixer
         private DateTime m_LastCountTime = DateTime.MinValue;
 
         private bool m_RequestRefresh;
+        private bool m_RequestGlobalNudge;
+        private bool m_RequestRestoreAbandonedOnce;
+        private bool m_RequestSmartAccessNudge;
 
         private bool m_ShowRefreshPrompt;
         private const string kPressRefreshPrompt = "Click Refresh Status to update";
 
         private bool m_SuppressReapply;
 
-        public Setting(IMod mod) : base(mod)
+        public Setting(IMod mod)
+            : base(mod)
         {
         }
 
@@ -82,6 +86,9 @@ namespace BuildingFixer
             m_StatusText = "No city loaded";
             m_LastCountTime = DateTime.MinValue;
             m_RequestRefresh = false;
+            m_RequestGlobalNudge = false;
+            m_RequestRestoreAbandonedOnce = false;
+            m_RequestSmartAccessNudge = false;
             m_ShowRefreshPrompt = false;
         }
 
@@ -90,7 +97,9 @@ namespace BuildingFixer
             base.Apply();
 
             if (m_SuppressReapply)
+            {
                 return;
+            }
 
             GameManager? gm = GameManager.instance;
             bool inGame = gm != null && gm.gameMode == GameMode.Game;
@@ -99,12 +108,15 @@ namespace BuildingFixer
             {
                 SetStatus("No city loaded", countedNow: false);
                 m_RequestRefresh = false;
+                m_RequestGlobalNudge = false;
+                m_RequestRestoreAbandonedOnce = false;
+                m_RequestSmartAccessNudge = false;
                 return;
             }
 
             // Options changed in-game:
-            //  - Mark status as stale.
-            //  - Let the player press Refresh to actually recount.
+            //  - Mark status as stale, but keep the last numbers visible.
+            //  - Allow the next Refresh to trigger a new scan.
             SetRefreshPrompt(true);
 
             // Ensure the runtime system wakes up at least once.
@@ -114,6 +126,7 @@ namespace BuildingFixer
         // ===== Actions tab =====
 
         // RECOMMENDED (one-click)
+        [SettingsUIButtonGroup(kRecommendedGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kRecommendedGroup)]
         public bool RecommendedNow
@@ -121,7 +134,9 @@ namespace BuildingFixer
             set
             {
                 if (!value)
+                {
                     return;
+                }
 
                 // Sensible defaults
                 RemoveAbandoned = true;
@@ -133,7 +148,37 @@ namespace BuildingFixer
                 DisableCondemned = true;
                 RemoveCondemned = false;
 
-                // Re-apply without scheduling more changes twice.
+                // Re-apply without scheduling changes twice.
+                m_SuppressReapply = true;
+                base.Apply();
+                m_SuppressReapply = false;
+
+                SetRefreshPrompt(true);
+            }
+        }
+
+        // Reset all toggles to vanilla (no BF effect).
+        [SettingsUIButtonGroup(kRecommendedGroup)]
+        [SettingsUIButton]
+        [SettingsUISection(kActionsTab, kRecommendedGroup)]
+        public bool ResetToGameDefaults
+        {
+            set
+            {
+                if (!value)
+                {
+                    return;
+                }
+
+                RemoveAbandoned = false;
+                RemoveCollapsed = false;
+
+                DisableAbandonment = false;
+                DisableCollapsed = false;
+
+                DisableCondemned = false;
+                RemoveCondemned = false;
+
                 m_SuppressReapply = true;
                 base.Apply();
                 m_SuppressReapply = false;
@@ -147,14 +192,16 @@ namespace BuildingFixer
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableAbandonmentChecked))]
         public bool RemoveAbandoned
         {
-            get; set;
+            get;
+            set;
         }
 
         [SettingsUISection(kActionsTab, kAutoRemovalGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableCollapsedChecked))]
         public bool RemoveCollapsed
         {
-            get; set;
+            get;
+            set;
         }
 
         // ---- AUTO RESTORE — No Demolish ----
@@ -162,14 +209,35 @@ namespace BuildingFixer
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveAbandonedChecked))]
         public bool DisableAbandonment
         {
-            get; set;
+            get;
+            set;
         }
 
         [SettingsUISection(kActionsTab, kAutoRestoreGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveCollapsedChecked))]
         public bool DisableCollapsed
         {
-            get; set;
+            get;
+            set;
+        }
+
+        // One-shot heavy sweep: restore all existing Abandoned stock.
+        [SettingsUIButtonGroup(kAutoRestoreGroup)]
+        [SettingsUIButton]
+        [SettingsUISection(kActionsTab, kAutoRestoreGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsNoCityLoaded))]
+        public bool RestoreExistingAbandonedNow
+        {
+            set
+            {
+                if (!value)
+                {
+                    return;
+                }
+
+                m_RequestRestoreAbandonedOnce = true;
+                WakeBuildingFixerSystemIfInGame();
+            }
         }
 
         // ---- CONDEMNED ----
@@ -177,34 +245,82 @@ namespace BuildingFixer
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsRemoveCondemnedChecked))]
         public bool DisableCondemned
         {
-            get; set;
+            get;
+            set;
         }
 
         [SettingsUISection(kActionsTab, kCondemnedGroup)]
         [SettingsUIDisableByCondition(typeof(Setting), nameof(IsDisableCondemnedChecked))]
         public bool RemoveCondemned
         {
-            get; set;
+            get;
+            set;
         }
 
         // ---- STATUS ----
+        [SettingsUIButtonGroup(kStatusGroup)]
         [SettingsUIButton]
         [SettingsUISection(kActionsTab, kStatusGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsNoCityLoaded))]
         public bool RefreshStatus
         {
             set
             {
-                if (value)
+                if (!value)
                 {
-                    m_RequestRefresh = true;
+                    return;
                 }
+
+                m_RequestRefresh = true;
+                WakeBuildingFixerSystemIfInGame();
+            }
+        }
+
+        // One-shot global nudge + icon clear
+        [SettingsUIButtonGroup(kStatusGroup)]
+        [SettingsUIButton]
+        [SettingsUISection(kActionsTab, kStatusGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsNoCityLoaded))]
+        public bool NudgeAndClearProblemIconsOnce
+        {
+            set
+            {
+                if (!value)
+                {
+                    return;
+                }
+
+                m_RequestGlobalNudge = true;
+                WakeBuildingFixerSystemIfInGame();
+            }
+        }
+
+        // One-shot NoPed/NoCar smart nudge
+        [SettingsUIButtonGroup(kStatusGroup)]
+        [SettingsUIButton]
+        [SettingsUISection(kActionsTab, kStatusGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(IsNoCityLoaded))]
+        public bool SmartAccessNudgeOnce
+        {
+            set
+            {
+                if (!value)
+                {
+                    return;
+                }
+
+                m_RequestSmartAccessNudge = true;
+                WakeBuildingFixerSystemIfInGame();
             }
         }
 
         [SettingsUISection(kActionsTab, kStatusGroup)]
         public string Status =>
-            m_ShowRefreshPrompt ? kPressRefreshPrompt :
-            (string.IsNullOrEmpty(m_StatusText) ? "No city loaded" : m_StatusText);
+            m_ShowRefreshPrompt
+                ? (string.IsNullOrEmpty(m_StatusText)
+                    ? kPressRefreshPrompt
+                    : $"{m_StatusText} (stale)")
+                : (string.IsNullOrEmpty(m_StatusText) ? "No city loaded" : m_StatusText);
 
         // ===== About =====
 
@@ -222,7 +338,9 @@ namespace BuildingFixer
             set
             {
                 if (value)
+                {
                     TryOpen(kUrlParadox);
+                }
             }
         }
 
@@ -234,7 +352,9 @@ namespace BuildingFixer
             set
             {
                 if (value)
+                {
                     TryOpen(kUrlDiscord);
+                }
             }
         }
 
@@ -258,8 +378,18 @@ namespace BuildingFixer
         public bool IsRemoveCondemnedChecked() => RemoveCondemned;
         public bool IsDisableCondemnedChecked() => DisableCondemned;
 
+        // Returns true when there is *no* city loaded.
+        // Grey out buttons that require a live city (Restore / Refresh / Nudge).
+        public bool IsNoCityLoaded()
+        {
+            GameManager gm = GameManager.instance;
+            // When a real city is loaded, gameMode == Game even in Options menu.
+            return gm == null || gm.gameMode != GameMode.Game;
+        }
+
         // Wakes the BuildingFixerSystem once, but only when a city is loaded.
         private static void WakeBuildingFixerSystemIfInGame()
+
         {
             GameManager? gm = GameManager.instance;
             if (gm == null || gm.gameMode != GameMode.Game)
@@ -279,33 +409,72 @@ namespace BuildingFixer
             system?.RequestRunNextTick();
         }
 
-
         // System handoff
         public bool TryConsumeRefreshRequest()
         {
             if (!m_RequestRefresh)
+            {
                 return false;
+            }
 
             m_RequestRefresh = false;
+            return true;
+        }
+
+        public bool TryConsumeGlobalNudgeRequest()
+        {
+            if (!m_RequestGlobalNudge)
+            {
+                return false;
+            }
+
+            m_RequestGlobalNudge = false;
+            return true;
+        }
+
+        public bool TryConsumeRestoreAbandonedOnce()
+        {
+            if (!m_RequestRestoreAbandonedOnce)
+            {
+                return false;
+            }
+
+            m_RequestRestoreAbandonedOnce = false;
+            return true;
+        }
+
+        public bool TryConsumeSmartAccessNudgeRequest()
+        {
+            if (!m_RequestSmartAccessNudge)
+            {
+                return false;
+            }
+
+            m_RequestSmartAccessNudge = false;
             return true;
         }
 
         // Status setters
         public void SetStatus(string text, bool countedNow)
         {
-            string display = string.IsNullOrEmpty(text) ? "No city loaded" : text;
+            var display = string.IsNullOrEmpty(text) ? "No city loaded" : text;
 
             if (countedNow)
             {
                 m_LastCountTime = DateTime.Now;
-                m_StatusText = $"{display}  —  Last updated {m_LastCountTime:HH:mm}";
+                m_StatusText = $"{display} — Updated {m_LastCountTime:HH:mm}";
                 SetRefreshPrompt(false);
             }
             else
             {
-                m_StatusText = (m_LastCountTime == DateTime.MinValue)
-                    ? display
-                    : $"{display}  (stale — Click Refresh Status)";
+                if (m_LastCountTime == DateTime.MinValue)
+                {
+                    m_StatusText = $"{display} (click Refresh Status)";
+                }
+                else
+                {
+                    m_StatusText = $"{display} — Updated {m_LastCountTime:HH:mm}";
+                }
             }
 
             m_SuppressReapply = true;
@@ -316,7 +485,9 @@ namespace BuildingFixer
         public void SetRefreshPrompt(bool show)
         {
             if (m_ShowRefreshPrompt == show)
+            {
                 return;
+            }
 
             m_ShowRefreshPrompt = show;
 

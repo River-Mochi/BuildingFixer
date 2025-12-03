@@ -64,8 +64,6 @@
 
   <!-- docs/ and dist/: visible only; never compiled/copied/packed -->
   <ItemGroup>
-    <Compile Remove="docs\**\*.*" />
-    <Content Remove="docs\**\*.*" />
     <Compile Remove="dist\**\*.*" />
     <Content Remove="dist\**\*.*" />
 
@@ -95,6 +93,16 @@
     <Compile Remove="Utilities\**\*.cs" />
     <Content Remove="Utilities\**\*.*" />
     <None Include="Utilities\**\*.*">
+      <Visible>true</Visible>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <Pack>false</Pack>
+    </None>
+  </ItemGroup>
+
+    <!-- research/: external decompiled Game sources, for reference only -->
+  <ItemGroup Condition="Exists('..\research\')">
+    <None Include="..\research\**\*.*" Exclude="..\research\.git\**;&#xD;&#xA;                   ..\research\bin\**;&#xD;&#xA;                   ..\research\obj\**;&#xD;&#xA;                   ..\research\.vs\**;&#xD;&#xA;                   ..\research\Game.sln;&#xD;&#xA;                   ..\research\Game.csproj">
+      <Link>research\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <Visible>true</Visible>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
       <Pack>false</Pack>

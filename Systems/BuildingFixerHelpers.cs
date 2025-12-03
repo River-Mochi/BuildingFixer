@@ -1,5 +1,5 @@
-// Systems/BuildingFixerHelpers.cs
-// Shared helpers for fixing buildings (flags, icons, emergency requests, small nudges).
+// BuildingFixerHelpers.cs
+// Shared helpers for fixing buildings (flags, icons, emergency requests, small nudges + Updated/road-edge refresh).
 
 namespace BuildingFixer
 {
@@ -10,7 +10,6 @@ namespace BuildingFixer
     using Game.Prefabs;
     using Game.Simulation;
     using Game.Tools;
-    using Unity.Collections;
     using Unity.Entities;
     using Unity.Mathematics;
 
@@ -72,7 +71,7 @@ namespace BuildingFixer
         }
 
         /// <summary>
-        /// Scrubs notification icons attached to a building:
+        /// Scrubs all notification icons attached to a building:
         /// - Marks each icon entity as Deleted (if it exists).
         /// - Clears the IconElement buffer on the building.
         /// Safe to call even if the buffer is missing.
@@ -115,6 +114,66 @@ namespace BuildingFixer
         }
 
         /// <summary>
+        /// Scrubs only the pedestrian / car access icons from a building, if present.
+        /// Marks those icon entities as Deleted and removes them from the buffer.
+        /// Returns true if any access icon was removed.
+        /// </summary>
+        public static bool ScrubAccessIcons(
+            EntityManager em,
+            DynamicBuffer<IconElement> iconBuffer,
+            Entity pedestrianNotificationPrefab,
+            Entity carNotificationPrefab)
+        {
+            bool hasPed = pedestrianNotificationPrefab != Entity.Null;
+            bool hasCar = carNotificationPrefab != Entity.Null;
+
+            if (!hasPed && !hasCar)
+            {
+                return false;
+            }
+
+            bool any = false;
+
+            for (int i = iconBuffer.Length - 1; i >= 0; i--)
+            {
+                Entity iconEntity = iconBuffer[i].m_Icon;
+
+                if (iconEntity == Entity.Null || !em.Exists(iconEntity))
+                {
+                    continue;
+                }
+
+                if (!em.HasComponent<PrefabRef>(iconEntity))
+                {
+                    continue;
+                }
+
+                PrefabRef prefabRef = em.GetComponentData<PrefabRef>(iconEntity);
+
+                bool isPed =
+                    hasPed && prefabRef.m_Prefab == pedestrianNotificationPrefab;
+                bool isCar =
+                    hasCar && prefabRef.m_Prefab == carNotificationPrefab;
+
+                if (!isPed && !isCar)
+                {
+                    continue;
+                }
+
+                if (!em.HasComponent<Deleted>(iconEntity) &&
+                    !em.HasComponent<Temp>(iconEntity))
+                {
+                    em.AddComponent<Deleted>(iconEntity);
+                }
+
+                iconBuffer.RemoveAt(i);
+                any = true;
+            }
+
+            return any;
+        }
+
+        /// <summary>
         /// Optionally “nudge” a building’s transform slightly to force re-batching /
         /// visual refresh. Used sparingly.
         /// </summary>
@@ -128,7 +187,26 @@ namespace BuildingFixer
             Transform transform = em.GetComponentData<Transform>(building);
 
             // Tiny nudge in X/Z, should be visually invisible.
-            float2 delta = new float2(0.01f, -0.01f);
+            var delta = new float2(0.01f, -0.01f);
+            transform.m_Position.xz += delta;
+
+            em.SetComponentData(building, transform);
+        }
+
+        /// <summary>
+        /// Nudge used by the SmartAccess path: slightly larger than the tiny refresh nudge,
+        /// roughly ~0.25 world units (~10–12 inches) away from the edge.
+        /// </summary>
+        public static void NudgeBuildingTransformForAccess(EntityManager em, Entity building)
+        {
+            if (!em.HasComponent<Transform>(building))
+            {
+                return;
+            }
+
+            Transform transform = em.GetComponentData<Transform>(building);
+
+            float2 delta = new float2(0.25f, -0.25f);
             transform.m_Position.xz += delta;
 
             em.SetComponentData(building, transform);
@@ -160,7 +238,7 @@ namespace BuildingFixer
 
             Transform transform = em.GetComponentData<Transform>(lotEntity);
 
-            float2 delta = new float2(0.01f, -0.01f);
+            var delta = new float2(0.01f, -0.01f);
             transform.m_Position.xz += delta;
 
             em.SetComponentData(lotEntity, transform);
@@ -173,7 +251,41 @@ namespace BuildingFixer
         }
 
         /// <summary>
-        /// Convenience helper: scrub icons + clear flags, optionally nudge transforms.
+        /// Adds Updated to building / lot / road-edge so vanilla systems recompute
+        /// visuals, areas and road/connection state after a restore or big tweak.
+        /// </summary>
+        public static void MarkRestoreUpdated(EntityManager em, Entity building)
+        {
+            AddUpdatedIfExists(em, building);
+
+            // Lot / construction object
+            if (em.HasComponent<Attached>(building))
+            {
+                Attached attached = em.GetComponentData<Attached>(building);
+                Entity lotEntity = attached.m_Parent;
+
+                if (lotEntity != Entity.Null && em.Exists(lotEntity))
+                {
+                    AddUpdatedIfExists(em, lotEntity);
+                }
+            }
+
+            // Road edge used for connection / utilities
+            if (em.HasComponent<Building>(building))
+            {
+                Building buildingData = em.GetComponentData<Building>(building);
+                Entity roadEdge = buildingData.m_RoadEdge;
+
+                if (roadEdge != Entity.Null && em.Exists(roadEdge))
+                {
+                    AddUpdatedIfExists(em, roadEdge);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Convenience helper: scrub icons + clear flags, optionally nudge transforms,
+        /// then mark building / lot / road-edge Updated so vanilla systems re-evaluate.
         /// Used by the “full restore” / rescue paths.
         /// </summary>
         public static void FullRestore(EntityManager em, Entity building, bool nudgeTransforms)
@@ -185,6 +297,21 @@ namespace BuildingFixer
             {
                 NudgeBuildingTransform(em, building);
                 NudgeAttachedLotObject(em, building);
+            }
+
+            MarkRestoreUpdated(em, building);
+        }
+
+        private static void AddUpdatedIfExists(EntityManager em, Entity entity)
+        {
+            if (entity == Entity.Null || !em.Exists(entity))
+            {
+                return;
+            }
+
+            if (!em.HasComponent<Updated>(entity))
+            {
+                em.AddComponent<Updated>(entity);
             }
         }
     }
