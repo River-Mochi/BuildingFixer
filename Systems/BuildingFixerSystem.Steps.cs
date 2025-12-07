@@ -1,19 +1,26 @@
 // Systems/BuildingFixerSystem.Steps.cs
-// Step_* methods for remove/disable/nudge + orphan cleanup.
+// Step_* methods for remove/disable/nudge + Smart Access nudge.
 
 namespace BuildingFixer
 {
-    using Game.Buildings;      // Building, Abandoned, Condemned, Destroyed, UnderConstruction
-    using Game.Common;         // Deleted, Temp, Updated, Owner
-    using Game.Notifications;  // IconElement, Icon
-    using Game.Objects;
+    using Game.Buildings;      // Building, Abandoned, Condemned, Destroyed, UnderConstruction, BuildingUtils
+    using Game.Common;         // Deleted, Temp, Updated
+    using Game.Objects;        // Attached, Transform
     using Game.Tools;
     using Unity.Entities;
 
     public sealed partial class BuildingFixerSystem
     {
+        // Cap how many Condemned we fully restore in one tick,
+        // to avoid a huge hitch when there are thousands.
+        private const int MaxCondemnedPerTick = 512;
+
+#if DEBUG
+        private const int MaxPerStepDebugEntities = 5;
+#endif
+
         // --------------------------------------------------------------------
-        // Step helpers (SystemAPI query based)
+        // Remove (demolish)
         // --------------------------------------------------------------------
 
         private int Step_RemoveAbandoned(EntityManager em)
@@ -31,7 +38,7 @@ namespace BuildingFixer
                     em.AddComponent<Deleted>(entity);
                 }
 
-                BuildingFixerHelpers.ScrubIconElements(em, entity);
+                // Icons for Abandoned will be handled by vanilla once the building is deleted.
                 count++;
             }
 
@@ -53,7 +60,6 @@ namespace BuildingFixer
                     em.AddComponent<Deleted>(entity);
                 }
 
-                BuildingFixerHelpers.ScrubIconElements(em, entity);
                 count++;
             }
 
@@ -64,57 +70,40 @@ namespace BuildingFixer
         {
             var count = 0;
 
-            // 1) Buildings that have Condemned.
             foreach ((RefRO<Building> _, Entity entity) in
                      SystemAPI.Query<RefRO<Building>>()
                               .WithAll<Condemned>()
                               .WithNone<Deleted, Temp>()
                               .WithEntityAccess())
             {
+                // Proactively clear icons for this building before demolition,
+                // so there are no orphaned Condemned icons.
+                BuildingFixerHelpers.ClearNotificationIcons(em, entity);
+                BuildingFixerHelpers.ClearNotificationIconsOnAttachedLot(em, entity);
+
                 if (!em.HasComponent<Deleted>(entity))
                 {
                     em.AddComponent<Deleted>(entity);
                 }
 
-                BuildingFixerHelpers.ScrubIconElements(em, entity);
                 count++;
-            }
-
-            // 2) Buildings that only have a Condemned icon (IconElement) but no Condemned tag.
-            if (TryGetCondemnedNotificationPrefab(out Entity condemnedNotificationPrefab))
-            {
-                foreach ((RefRO<Building> _, DynamicBuffer<IconElement> iconBuffer, Entity entity) in
-                         SystemAPI.Query<RefRO<Building>, DynamicBuffer<IconElement>>()
-                                  .WithNone<Deleted, Temp, Condemned>()
-                                  .WithEntityAccess())
-                {
-                    if (!HasCondemnedIcon(em, iconBuffer, condemnedNotificationPrefab))
-                    {
-                        continue;
-                    }
-
-                    if (!em.HasComponent<Deleted>(entity))
-                    {
-                        em.AddComponent<Deleted>(entity);
-                    }
-
-                    BuildingFixerHelpers.ScrubIconElements(em, entity);
-                    count++;
-                }
             }
 
             return count;
         }
 
+        // --------------------------------------------------------------------
+        // Disable / restore (no demolish)
+        // --------------------------------------------------------------------
+
         /// <summary>
         /// Lightweight future-focused disable: reacts to fresh Abandoned+Updated buildings
-        /// (and icon-only cases with Updated) instead of sweeping the whole city every tick.
+        /// instead of sweeping the whole city every tick.
         /// </summary>
         private int Step_DisableAbandoned(EntityManager em)
         {
             var count = 0;
 
-            // 1) Buildings that have Abandoned and were recently Updated.
             foreach ((RefRO<Building> _, Entity entity) in
                      SystemAPI.Query<RefRO<Building>>()
                               .WithAll<Abandoned, Updated>()
@@ -125,45 +114,17 @@ namespace BuildingFixer
                 count++;
             }
 
-            // 2) Icon-only Abandoned, gated on Updated to keep it cheap.
-            if (TryGetAbandonedNotificationPrefabs(
-                    out Entity abandonedNotificationPrefab,
-                    out Entity abandonedCollapsedNotificationPrefab))
-            {
-                foreach ((RefRO<Building> _, DynamicBuffer<IconElement> iconBuffer, Entity entity) in
-                         SystemAPI.Query<RefRO<Building>, DynamicBuffer<IconElement>>()
-                            .WithAll<Updated>()
-                            .WithNone<Deleted>()
-                            .WithNone<Temp>()
-                            .WithNone<Abandoned>()
-                            .WithNone<UnderConstruction>()
-                            .WithEntityAccess())
-                {
-                    if (!HasAbandonedIcon(
-                            em, iconBuffer,
-                            abandonedNotificationPrefab,
-                            abandonedCollapsedNotificationPrefab))
-                    {
-                        continue;
-                    }
-
-                    BuildingFixerHelpers.FullRestore(em, entity, nudgeTransforms: true);
-                    count++;
-                }
-            }
-
             return count;
         }
 
         /// <summary>
-        /// Heavy sweep: restore ALL existing Abandoned buildings and Abandoned icon-only cases.
+        /// Heavy sweep: restore ALL existing Abandoned buildings.
         /// Triggered only by the "Restore existing Abandoned now" button.
         /// </summary>
         private int Step_DisableAbandonedAll(EntityManager em)
         {
             var count = 0;
 
-            // 1) All Abandoned buildings (non-deleted, non-temp, not under construction).
             foreach ((RefRO<Building> _, Entity entity) in
                      SystemAPI.Query<RefRO<Building>>()
                               .WithAll<Abandoned>()
@@ -174,40 +135,12 @@ namespace BuildingFixer
                 count++;
             }
 
-            // 2) Icon-only Abandoned (no Abandoned tag, but abandoned icons present).
-            if (TryGetAbandonedNotificationPrefabs(
-                    out Entity abandonedNotificationPrefab,
-                    out Entity abandonedCollapsedNotificationPrefab))
-            {
-                foreach ((RefRO<Building> _, DynamicBuffer<IconElement> iconBuffer, Entity entity) in
-                         SystemAPI
-                            .Query<RefRO<Building>, DynamicBuffer<IconElement>>()
-                            .WithNone<Deleted>()
-                            .WithNone<Temp>()
-                            .WithNone<Abandoned>()
-                            .WithNone<UnderConstruction>()
-                            .WithEntityAccess())
-                {
-                    if (!HasAbandonedIcon(
-                            em,
-                            iconBuffer,
-                            abandonedNotificationPrefab,
-                            abandonedCollapsedNotificationPrefab))
-                    {
-                        continue;
-                    }
-
-                    BuildingFixerHelpers.FullRestore(em, entity, nudgeTransforms: true);
-                    count++;
-                }
-            }
-
             return count;
         }
 
         private int Step_DisableCollapsed(EntityManager em)
         {
-            int count = 0;
+            var count = 0;
 
             foreach ((RefRO<Building> _, Entity entity) in
                      SystemAPI.Query<RefRO<Building>>()
@@ -222,11 +155,21 @@ namespace BuildingFixer
             return count;
         }
 
+        /// <summary>
+        /// "Disable Condemned (no demolish)" path:
+        /// - Clears Condemned / damage / rescue flags.
+        /// - Scrubs notification icons on building + lot.
+        /// - Adds Updated so vanilla recomputes visuals/areas.
+        /// Work is batched to MaxCondemnedPerTick to avoid a long hitch.
+        /// </summary>
         private int Step_DisableCondemned(EntityManager em)
         {
-            int count = 0;
+            var count = 0;
 
-            // 1) Buildings that have Condemned.
+#if DEBUG
+            int logged = 0;
+#endif
+
             foreach ((RefRO<Building> _, Entity entity) in
                      SystemAPI.Query<RefRO<Building>>()
                               .WithAll<Condemned>()
@@ -234,83 +177,135 @@ namespace BuildingFixer
                               .WithEntityAccess())
             {
                 BuildingFixerHelpers.FullRestore(em, entity, nudgeTransforms: true);
-                count++;
-            }
 
-            // 2) Buildings that only have a Condemned icon but no Condemned tag.
-            if (TryGetCondemnedNotificationPrefab(out Entity condemnedNotificationPrefab))
-            {
-                foreach ((RefRO<Building> _, DynamicBuffer<IconElement> iconBuffer, Entity entity) in
-                         SystemAPI.Query<RefRO<Building>, DynamicBuffer<IconElement>>()
-                                  .WithNone<Deleted, Temp, Condemned>()
-                                  .WithEntityAccess())
+#if DEBUG
+                if (logged < MaxPerStepDebugEntities)
                 {
-                    if (!HasCondemnedIcon(em, iconBuffer, condemnedNotificationPrefab))
-                    {
-                        continue;
-                    }
+                    DebugLog($"Step_DisableCondemned: restored Condemned building entity={entity}.");
+                    logged++;
+                }
+#endif
+                count++;
 
-                    BuildingFixerHelpers.FullRestore(em, entity, nudgeTransforms: true);
-                    count++;
+                if (count >= MaxCondemnedPerTick)
+                {
+                    break;
                 }
             }
+
+#if DEBUG
+            if (count > 0)
+            {
+                int remaining = 0;
+                foreach (RefRO<Building> _ in
+                         SystemAPI.Query<RefRO<Building>>()
+                                  .WithAll<Condemned>()
+                                  .WithNone<Deleted, Temp>())
+                {
+                    remaining++;
+                }
+
+                DebugLog(
+                    $"Step_DisableCondemned: restored={count} this tick; remainingCondemnedAfterSweep={remaining}.");
+            }
+#endif
 
             return count;
         }
 
+        // --------------------------------------------------------------------
+        // Global nudge
+        // --------------------------------------------------------------------
+
         /// <summary>
-        /// One-shot global icon clear + road/lot nudge.
-        /// Clears all IconElement entries on buildings, nudges transforms so service and
-        /// access state can be recomputed, and cleans up orphan icons with no owner.
+        /// One-shot global nudge: runs over all live buildings,
+        /// nudges building + lot, and marks them Updated so vanilla
+        /// systems recompute visuals and connections.
+        ///
+        /// Also scrubs IconElement buffers so problem icons are removed.
         /// </summary>
         private int Step_GlobalNudgeAndClearIcons(EntityManager em)
         {
             var count = 0;
 
-            // 1) Building-tied icons and transforms.
-            foreach ((RefRO<Building> _, DynamicBuffer<IconElement> iconBuffer, Entity entity) in
-                     SystemAPI.Query<RefRO<Building>, DynamicBuffer<IconElement>>()
+            foreach ((RefRO<Building> _, Entity entity) in
+                     SystemAPI.Query<RefRO<Building>>()
                               .WithNone<Deleted, Temp, UnderConstruction>()
                               .WithEntityAccess())
             {
-                BuildingFixerHelpers.ScrubIconElements(em, entity);
                 BuildingFixerHelpers.NudgeBuildingTransform(em, entity);
                 BuildingFixerHelpers.NudgeAttachedLotObject(em, entity);
                 BuildingFixerHelpers.MarkRestoreUpdated(em, entity);
+
+                BuildingFixerHelpers.ClearNotificationIcons(em, entity);
+                BuildingFixerHelpers.ClearNotificationIconsOnAttachedLot(em, entity);
+
                 count++;
             }
-
-            // 2) Orphaned icon entities that no longer have a live owner.
-            count += Step_CleanupOrphanIcons(em);
 
             return count;
         }
 
+        // --------------------------------------------------------------------
+        // Smart Access nudge
+        // --------------------------------------------------------------------
+
         /// <summary>
-        /// Cleans up icon entities whose owner is null, missing, or already Deleted.
-        /// Handles ghost utility/problem icons that float in space after their building is gone.
+        /// One-shot "Smart Access" nudge for buildings that have a road edge
+        /// but fail BuildingUtils.GetAddress (a good proxy for bad road / lot
+        /// alignment, which often shows up as NoPedestrianAccess / NoCarAccess).
+        ///
+        /// We deliberately skip buildings with no m_RoadEdge, because those are
+        /// truly unconnected (too far from a road, no services).
         /// </summary>
-        private int Step_CleanupOrphanIcons(EntityManager em)
+        private int Step_SmartAccessNudge(EntityManager em)
         {
             var count = 0;
 
-            foreach ((RefRO<Icon> _, RefRO<Owner> owner, Entity iconEntity) in
-                     SystemAPI.Query<RefRO<Icon>, RefRO<Owner>>()
-                              .WithNone<Deleted, Temp>()
+#if DEBUG
+            int logged = 0;
+#endif
+
+            foreach ((RefRO<Building> buildingRO, Entity entity) in
+                     SystemAPI.Query<RefRO<Building>>()
+                              .WithNone<Deleted, Temp, UnderConstruction>()
                               .WithEntityAccess())
             {
-                Entity ownerEntity = owner.ValueRO.m_Owner;
+                Building building = buildingRO.ValueRO;
 
-                if (ownerEntity == Entity.Null ||
-                    !em.Exists(ownerEntity) ||
-                    em.HasComponent<Deleted>(ownerEntity))
+                // Genuine "no road" cases: don't touch.
+                Entity roadEdge = building.m_RoadEdge;
+                if (roadEdge == Entity.Null || !em.Exists(roadEdge))
                 {
-                    if (!em.HasComponent<Deleted>(iconEntity))
-                    {
-                        em.AddComponent<Deleted>(iconEntity);
-                        count++;
-                    }
+                    continue;
                 }
+
+                // If the game can resolve a valid address, we assume road / lot
+                // alignment is acceptable and skip.
+                if (BuildingUtils.GetAddress(em, entity, out _, out _))
+                {
+                    continue;
+                }
+
+                // At this point: there IS a road edge, but no valid address.
+                // This kind of misalignment often produces NoPedestrianAccess / NoCarAccess icons.
+                BuildingFixerHelpers.NudgeBuildingTransformForAccess(em, entity);
+                BuildingFixerHelpers.NudgeAttachedLotObject(em, entity);
+                BuildingFixerHelpers.MarkRestoreUpdated(em, entity);
+
+                // Clear icons on these problem buildings as well.
+                BuildingFixerHelpers.ClearNotificationIcons(em, entity);
+                BuildingFixerHelpers.ClearNotificationIconsOnAttachedLot(em, entity);
+
+                count++;
+
+#if DEBUG
+                if (logged < MaxPerStepDebugEntities)
+                {
+                    DebugLog($"Step_SmartAccessNudge: nudged building entity={entity}.");
+                    logged++;
+                }
+#endif
             }
 
             return count;

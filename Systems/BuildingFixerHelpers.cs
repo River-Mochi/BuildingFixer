@@ -1,5 +1,5 @@
-// BuildingFixerHelpers.cs
-// Shared helpers for fixing buildings (flags, icons, emergency requests, small nudges + Updated/road-edge refresh).
+// Systems/BuildingFixerHelpers.cs
+// Shared helpers for fixing buildings (flags, emergency requests, nudges, Updated/road-edge refresh, icon scrub).
 
 namespace BuildingFixer
 {
@@ -7,7 +7,6 @@ namespace BuildingFixer
     using Game.Common;
     using Game.Notifications;
     using Game.Objects;
-    using Game.Prefabs;
     using Game.Simulation;
     using Game.Tools;
     using Unity.Entities;
@@ -20,7 +19,7 @@ namespace BuildingFixer
     {
         /// <summary>
         /// Clears Abandoned/Condemned/Collapsed and related temp/emergency flags from a building.
-        /// Also clears rescue / service requests and damage markers so debris and fire icons stop looping.
+        /// Also clears rescue / service requests and damage markers so debris and fire effects stop looping.
         /// </summary>
         public static void ClearProblemFlags(EntityManager em, Entity building)
         {
@@ -71,111 +70,7 @@ namespace BuildingFixer
         }
 
         /// <summary>
-        /// Scrubs all notification icons attached to a building:
-        /// - Marks each icon entity as Deleted (if it exists).
-        /// - Clears the IconElement buffer on the building.
-        /// Safe to call even if the buffer is missing.
-        /// </summary>
-        public static void ScrubIconElements(EntityManager em, Entity building)
-        {
-            if (!em.HasBuffer<IconElement>(building))
-            {
-                return;
-            }
-
-            DynamicBuffer<IconElement> iconBuffer = em.GetBuffer<IconElement>(building);
-
-            // For each referenced icon, mark the icon entity as Deleted so the
-            // vanilla icon systems stop rendering it.
-            for (int i = 0; i < iconBuffer.Length; i++)
-            {
-                Entity iconEntity = iconBuffer[i].m_Icon;
-
-                if (iconEntity == Entity.Null)
-                {
-                    continue;
-                }
-
-                if (!em.Exists(iconEntity))
-                {
-                    continue;
-                }
-
-                // Avoid double-tagging.
-                if (!em.HasComponent<Deleted>(iconEntity) &&
-                    !em.HasComponent<Temp>(iconEntity))
-                {
-                    em.AddComponent<Deleted>(iconEntity);
-                }
-            }
-
-            // Finally, clear the buffer on the building itself.
-            iconBuffer.Clear();
-        }
-
-        /// <summary>
-        /// Scrubs only the pedestrian / car access icons from a building, if present.
-        /// Marks those icon entities as Deleted and removes them from the buffer.
-        /// Returns true if any access icon was removed.
-        /// </summary>
-        public static bool ScrubAccessIcons(
-            EntityManager em,
-            DynamicBuffer<IconElement> iconBuffer,
-            Entity pedestrianNotificationPrefab,
-            Entity carNotificationPrefab)
-        {
-            bool hasPed = pedestrianNotificationPrefab != Entity.Null;
-            bool hasCar = carNotificationPrefab != Entity.Null;
-
-            if (!hasPed && !hasCar)
-            {
-                return false;
-            }
-
-            bool any = false;
-
-            for (int i = iconBuffer.Length - 1; i >= 0; i--)
-            {
-                Entity iconEntity = iconBuffer[i].m_Icon;
-
-                if (iconEntity == Entity.Null || !em.Exists(iconEntity))
-                {
-                    continue;
-                }
-
-                if (!em.HasComponent<PrefabRef>(iconEntity))
-                {
-                    continue;
-                }
-
-                PrefabRef prefabRef = em.GetComponentData<PrefabRef>(iconEntity);
-
-                bool isPed =
-                    hasPed && prefabRef.m_Prefab == pedestrianNotificationPrefab;
-                bool isCar =
-                    hasCar && prefabRef.m_Prefab == carNotificationPrefab;
-
-                if (!isPed && !isCar)
-                {
-                    continue;
-                }
-
-                if (!em.HasComponent<Deleted>(iconEntity) &&
-                    !em.HasComponent<Temp>(iconEntity))
-                {
-                    em.AddComponent<Deleted>(iconEntity);
-                }
-
-                iconBuffer.RemoveAt(i);
-                any = true;
-            }
-
-            return any;
-        }
-
-        /// <summary>
-        /// Optionally “nudge” a building’s transform slightly to force re-batching /
-        /// visual refresh. Used sparingly.
+        /// Tiny nudge to force re-batching / visual refresh. Used for general refresh paths.
         /// </summary>
         public static void NudgeBuildingTransform(EntityManager em, Entity building)
         {
@@ -187,7 +82,7 @@ namespace BuildingFixer
             Transform transform = em.GetComponentData<Transform>(building);
 
             // Tiny nudge in X/Z, should be visually invisible.
-            var delta = new float2(0.01f, -0.01f);
+            float2 delta = new float2(0.01f, -0.01f);
             transform.m_Position.xz += delta;
 
             em.SetComponentData(building, transform);
@@ -238,7 +133,7 @@ namespace BuildingFixer
 
             Transform transform = em.GetComponentData<Transform>(lotEntity);
 
-            var delta = new float2(0.01f, -0.01f);
+            float2 delta = new float2(0.01f, -0.01f);
             transform.m_Position.xz += delta;
 
             em.SetComponentData(lotEntity, transform);
@@ -284,14 +179,15 @@ namespace BuildingFixer
         }
 
         /// <summary>
-        /// Convenience helper: scrub icons + clear flags, optionally nudge transforms,
+        /// Convenience helper: clear flags, scrub icons, optionally nudge transforms,
         /// then mark building / lot / road-edge Updated so vanilla systems re-evaluate.
         /// Used by the “full restore” / rescue paths.
         /// </summary>
         public static void FullRestore(EntityManager em, Entity building, bool nudgeTransforms)
         {
-            ScrubIconElements(em, building);
             ClearProblemFlags(em, building);
+            ClearNotificationIcons(em, building);
+            ClearNotificationIconsOnAttachedLot(em, building);
 
             if (nudgeTransforms)
             {
@@ -300,6 +196,88 @@ namespace BuildingFixer
             }
 
             MarkRestoreUpdated(em, building);
+        }
+
+        /// <summary>
+        /// Clears any notification icons attached directly to the building (via IconElement buffer).
+        /// We don't try to distinguish types here – it's a general "problem icon scrub".
+        /// </summary>
+        internal static void ClearNotificationIcons(EntityManager em, Entity building)
+        {
+            try
+            {
+                if (!em.HasBuffer<IconElement>(building))
+                {
+                    return;
+                }
+
+                DynamicBuffer<IconElement> icons = em.GetBuffer<IconElement>(building);
+#if DEBUG
+                int before = icons.Length;
+#endif
+                if (icons.Length > 0)
+                {
+                    icons.Clear();
+#if DEBUG
+                    Mod.s_Log.Debug(
+                        $"[BF][DEBUG] ClearNotificationIcons: entity={building} removedIconCount={before}");
+#endif
+                }
+            }
+            catch (System.Exception ex)
+            {
+#if DEBUG
+                Mod.s_Log.Debug(
+                    $"[BF][DEBUG] ClearNotificationIcons: exception {ex.GetType().Name}: {ex.Message}");
+#endif
+            }
+        }
+
+        /// <summary>
+        /// Clears notification icons attached to the building's lot / construction object, if any.
+        /// </summary>
+        internal static void ClearNotificationIconsOnAttachedLot(EntityManager em, Entity building)
+        {
+            if (!em.HasComponent<Attached>(building))
+            {
+                return;
+            }
+
+            Attached attached = em.GetComponentData<Attached>(building);
+            Entity lotEntity = attached.m_Parent;
+
+            if (lotEntity == Entity.Null || !em.Exists(lotEntity))
+            {
+                return;
+            }
+
+            try
+            {
+                if (!em.HasBuffer<IconElement>(lotEntity))
+                {
+                    return;
+                }
+
+                DynamicBuffer<IconElement> icons = em.GetBuffer<IconElement>(lotEntity);
+#if DEBUG
+                int before = icons.Length;
+#endif
+                if (icons.Length > 0)
+                {
+                    icons.Clear();
+#if DEBUG
+                    Mod.s_Log.Debug(
+                        $"[BF][DEBUG] ClearNotificationIconsOnAttachedLot: lotEntity={lotEntity} removedIconCount={before}");
+#endif
+                }
+            }
+            catch (System.Exception ex)
+            {
+#if DEBUG
+                Mod.s_Log.Debug(
+                    $"[BF][DEBUG] ClearNotificationIconsOnAttachedLot: exception {ex.GetType().Name}: {ex.Message}");
+#endif
+            }
         }
 
         private static void AddUpdatedIfExists(EntityManager em, Entity entity)

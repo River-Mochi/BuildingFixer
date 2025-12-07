@@ -5,20 +5,21 @@ namespace BuildingFixer
 {
     using Colossal.Serialization.Entities;  // Purpose
     using Game;                            // GameSystemBase, GameManager, GameMode
-    using Game.Buildings;                  // Building, Abandoned, Condemned, Destroyed
+    using Game.Buildings;                  // Building, Abandoned, Condemned, Destroyed, UnderConstruction
     using Game.Common;                     // Deleted, Temp, Updated
+    using Game.Objects;
     using Game.SceneFlow;                  // SystemUpdatePhase
     using Game.Simulation;                 // CondemnedBuildingSystem, ZoneCheckSystem
-    using Game.Tools;
+    using Game.Tools;                      // BuildingUtils
     using Unity.Entities;
 
     /// <summary>
     /// Core system for Building Fixer:
     /// - Auto Remove Abandoned / Collapsed / Condemned.
     /// - Disable Abandonment / Collapsed / Condemned (no demolish, full restore).
-    /// - Status counting (Abandoned / Condemned / Collapsed) on demand.
+    /// - Status counting (Abandoned / Condemned / Collapsed + access issues) on demand.
     /// - Optional one-shot global icon clear and road/lot nudge.
-    /// - Extra: orphan-icon cleanup and better visual/road refresh on restore.
+    /// - Optional one-shot Smart Access nudge for NoPed/NoCar-style issues.
     /// </summary>
     public sealed partial class BuildingFixerSystem : GameSystemBase
     {
@@ -50,6 +51,8 @@ namespace BuildingFixer
             m_IsCityLoaded = false;
             m_DoAutoCountOnce = false;
             Enabled = false;
+
+            DebugLog($"OnGamePreload: purpose={purpose}, mode={mode}");
         }
 
         // Called when the game / map has finished loading.
@@ -64,6 +67,8 @@ namespace BuildingFixer
             // - Produce a fresh status snapshot.
             m_DoAutoCountOnce = m_IsCityLoaded;
             Enabled = m_IsCityLoaded;
+
+            DebugLog($"OnGameLoadingComplete: purpose={purpose}, mode={mode}, isCityLoaded={m_IsCityLoaded}");
         }
 
         /// <summary>
@@ -74,6 +79,7 @@ namespace BuildingFixer
         {
             m_DoAutoCountOnce = true;
             Enabled = true;
+            DebugLog("RequestRunNextTick: scheduled auto-count + work pass.");
         }
 
         protected override void OnUpdate()
@@ -93,6 +99,9 @@ namespace BuildingFixer
                 return;
             }
 
+            DebugLog(
+                $"OnUpdate: toggles RemoveAbandoned={setting.RemoveAbandoned}, RemoveCollapsed={setting.RemoveCollapsed}, RemoveCondemned={setting.RemoveCondemned}, DisableAbandonment={setting.DisableAbandonment}, DisableCollapsed={setting.DisableCollapsed}, DisableCondemned={setting.DisableCondemned}");
+
             // Keep vanilla Condemned systems in sync with the DisableCondemned toggle.
             SyncCondemnedSystems(setting);
 
@@ -109,6 +118,7 @@ namespace BuildingFixer
             int disabledCollapsed = 0;
             int disabledCondemned = 0;
             int globalNudgeCount = 0;
+            int smartAccessNudgeCount = 0;
 
             // ---- ONE-SHOT EXISTING ABANDONED RESTORE ----
             if (setting.TryConsumeRestoreAbandonedOnce())
@@ -156,12 +166,20 @@ namespace BuildingFixer
                 didWork |= disabledCondemned > 0;
             }
 
-            // ---- ONE-SHOT GLOBAL NUDGE + ICON CLEAR + ORPHAN ICON CLEANUP ----
+            // ---- ONE-SHOT GLOBAL NUDGE + ICON CLEAR ----
             if (setting.TryConsumeGlobalNudgeRequest())
             {
                 globalNudgeCount = Step_GlobalNudgeAndClearIcons(em);
                 didWork |= globalNudgeCount > 0;
                 DebugLog($"GlobalNudge+ClearIcons: affectedBuildings={globalNudgeCount}");
+            }
+
+            // ---- ONE-SHOT SMART ACCESS NUDGE ----
+            if (setting.TryConsumeSmartAccessNudgeRequest())
+            {
+                smartAccessNudgeCount = Step_SmartAccessNudge(em);
+                didWork |= smartAccessNudgeCount > 0;
+                DebugLog($"SmartAccessNudge: affectedBuildings={smartAccessNudgeCount}");
             }
 
             // ---- STATUS UPDATE DECISION ----
@@ -188,7 +206,7 @@ namespace BuildingFixer
             }
             else if (didWork)
             {
-                // If any buildings changed (removed, restored, or globally nudged),
+                // If any buildings changed (removed, restored, or globally/smart nudged),
                 // update counts so Status does not lag behind the city view.
                 doCount = true;
                 workReason = true;
@@ -209,10 +227,11 @@ namespace BuildingFixer
                 disabledAbandoned > 0 ||
                 disabledCollapsed > 0 ||
                 disabledCondemned > 0 ||
-                globalNudgeCount > 0)
+                globalNudgeCount > 0 ||
+                smartAccessNudgeCount > 0)
             {
                 DebugLog(
-                    $"Step summary: RestoreAllAbandoned={restoredExistingAbandoned}, RemoveAbandoned={removedAbandoned}, RemoveCollapsed={removedCollapsed}, RemoveCondemned={removedCondemned}, DisableAbandoned={disabledAbandoned}, DisableCollapsed={disabledCollapsed}, DisableCondemned={disabledCondemned}, GlobalNudge={globalNudgeCount}");
+                    $"Step summary: RestoreAllAbandoned={restoredExistingAbandoned}, RemoveAbandoned={removedAbandoned}, RemoveCollapsed={removedCollapsed}, RemoveCondemned={removedCondemned}, DisableAbandoned={disabledAbandoned}, DisableCollapsed={disabledCollapsed}, DisableCondemned={disabledCondemned}, GlobalNudge={globalNudgeCount}, SmartAccess={smartAccessNudgeCount}");
             }
 
             // If no toggles are active and no pending auto-count, pause until
@@ -251,6 +270,9 @@ namespace BuildingFixer
             {
                 condemnedSystem.Enabled = !disableCondemned;
             }
+
+            DebugLog(
+                $"SyncCondemnedSystems: disableCondemned={disableCondemned}, zoneCheckEnabled={zoneCheck?.Enabled}, condemnedSystemEnabled={condemnedSystem?.Enabled}");
         }
 
         private static bool HasAnyActions(Setting setting)
@@ -269,9 +291,12 @@ namespace BuildingFixer
 
         private void CountAndSetStatus(Setting setting)
         {
-            var abandoned = 0;
-            var condemned = 0;
-            var collapsed = 0;
+            EntityManager em = EntityManager;
+
+            int abandoned = 0;
+            int condemned = 0;
+            int collapsed = 0;
+            int accessIssues = 0;
 
             // Abandoned (alive, non-temp, non-deleted)
             foreach (RefRO<Building> _ in
@@ -300,11 +325,39 @@ namespace BuildingFixer
                 collapsed++;
             }
 
+            // Approximate NoPed/NoCar count: buildings that have a road edge
+            // but BuildingUtils.GetAddress fails.
+            foreach ((RefRO<Building> buildingRO, Entity entity) in
+                     SystemAPI.Query<RefRO<Building>>()
+                              .WithNone<Deleted, Temp, UnderConstruction>()
+                              .WithEntityAccess())
+            {
+                Building building = buildingRO.ValueRO;
+                Entity roadEdge = building.m_RoadEdge;
+
+                // Genuine "no road" cases: skip – these are not the UI's NoPed/NoCar bug.
+                if (roadEdge == Entity.Null || !em.Exists(roadEdge))
+                {
+                    continue;
+                }
+
+                if (!BuildingUtils.GetAddress(em, entity, out _, out _))
+                {
+                    accessIssues++;
+                }
+            }
+
             DebugLog(
-                $"Status scan: Abandoned={abandoned}, Condemned={condemned}, Collapsed={collapsed}");
+                $"Status scan: Abandoned={abandoned}, Condemned={condemned}, Collapsed={collapsed}, AccessIssuesApprox={accessIssues}");
 
             var text =
                 $"Abandoned: {abandoned}  |  Condemned: {condemned}  |  Collapsed: {collapsed}";
+
+            if (accessIssues > 0)
+            {
+                text +=
+                    $"\nApprox. access issues (NoPed/NoCar): {accessIssues}";
+            }
 
             setting.SetStatus(text, countedNow: true);
         }
